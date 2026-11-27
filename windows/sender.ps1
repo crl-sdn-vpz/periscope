@@ -4,7 +4,6 @@
 
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-. (Join-Path $here "periscope.config.ps1")
 
 $stateDir = Join-Path $env:LOCALAPPDATA "periscope"
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
@@ -24,12 +23,10 @@ function Write-Log([string]$msg) {
     Add-Content -Path $logFile -Value $line
 }
 
-# --- single instance --------------------------------------------------------
-$created = $false
-$mutex = New-Object System.Threading.Mutex($true, "Local\PeriscopeSender", [ref]$created)
-if (-not $created) { Write-Log "Another sender is already running; exiting."; exit 0 }
-Set-Content -Path $pidFile -Value $PID
-Remove-Item -Path $stopFile -ErrorAction SilentlyContinue
+# The console is hidden, so sender.log is the only place a fatal error can show up.
+trap { Write-Log ("Fatal: {0}" -f $_); exit 1 }
+
+. (Join-Path $here "periscope.config.ps1")
 
 # --- locate ffmpeg ----------------------------------------------------------
 function Resolve-Ffmpeg {
@@ -103,12 +100,20 @@ function Build-Args {
     return $a
 }
 
+# --- checks (before taking the lock, so a bad config leaves no pid file behind) --
 if ($Config.Passphrase.Length -lt 10 -or $Config.Passphrase.Length -gt 79) {
     Write-Log "Passphrase must be 10-79 characters."; exit 1
 }
 
 $ffmpeg  = Resolve-Ffmpeg
 $argLine = (Build-Args) -join " "
+
+# --- single instance --------------------------------------------------------
+$created = $false
+$mutex = New-Object System.Threading.Mutex($true, "Local\PeriscopeSender", [ref]$created)
+if (-not $created) { Write-Log "Another sender is already running; exiting."; exit 0 }
+Set-Content -Path $pidFile -Value $PID
+Remove-Item -Path $stopFile -ErrorAction SilentlyContinue
 Write-Log "Sender started (pid $PID). ffmpeg: $ffmpeg"
 Write-Log ("Target srt://{0}:{1}  monitor={2} fps={3} encoder={4}" -f $Config.TargetHost, $Config.Port, $Config.Monitor, $Config.Fps, $Config.Encoder)
 
