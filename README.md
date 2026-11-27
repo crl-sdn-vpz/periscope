@@ -252,7 +252,6 @@ Config: `periscope.config.ps1`
 - Viewer end-to-end test (virtual display, simulated sender):
   ```bash
   sudo apt install xvfb openbox mpv ffmpeg socat wmctrl xdotool x11-utils x11-apps shellcheck
-  tests/e2e-xvfb.sh
-  shellcheck -S warning linux/d1 linux/install.sh tests/e2e-xvfb.sh
+  just check      # shellcheck + tests/e2e-xvfb.sh (or run them one by one: just lint, just e2e)
   ```
 - Don't commit a filled-in `windows/periscope.config.ps1`, because it holds your passphrase.
