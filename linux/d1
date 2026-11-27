@@ -4,7 +4,8 @@
 # makes your own windows translucent on top, and grabs full-res screenshots to the clipboard.
 set -euo pipefail
 
-VERSION="0.1.0"
+VERSION="0.2.0"
+REPO="crl-sdn-vpz/periscope"
 CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/periscope/config"
 
 # ---------- defaults (override in $CONFIG_FILE) ------------------------------------
@@ -320,6 +321,28 @@ cmd_test() {
         -f mpegts -flush_packets 1 "$url"
 }
 
+# ---------- pairing ------------------------------------------------------------------
+lan_ip() {   # source address of the default route: the IP device 1 should call
+    local r; r=$(ip -4 route get 1.1.1.1 2>/dev/null || true)
+    [[ $r =~ src\ ([0-9.]+) ]] && echo "${BASH_REMATCH[1]}"
+}
+
+cmd_pair() {   # prints the one command that installs, configures and starts device 1
+    require_passphrase
+    [[ $PASSPHRASE != *'"'* ]] || die "PASSPHRASE can't contain \" for the Windows command; change it in $CONFIG_FILE"
+    local ip; ip=$(lan_ip || true); ip=${ip:-"<this-machine-LAN-IP>"}
+    local q="'"; local pass=${PASSPHRASE//$q/$q$q}   # PowerShell escapes ' inside '...' as ''
+    local url="https://raw.githubusercontent.com/$REPO/main/windows/install.ps1"
+    cat <<EOF
+On device 1 (Windows), paste this into PowerShell or a command prompt. It installs ffmpeg,
+writes the config, registers autostart and starts the sender:
+
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm $url))) -TargetHost $ip -Port $PORT -Passphrase '$pass'"
+
+Show it again any time with:  d1 pair
+EOF
+}
+
 # ---------- GNOME hotkeys ----------------------------------------------------------
 cmd_bind_gnome() {
     have gsettings || die "gsettings not found (not GNOME?)"
@@ -361,6 +384,7 @@ d1 $VERSION - see and capture device 1 from this machine
   d1 status             stream / mode info
   d1 stop               stop the receiver and restore window opacity
   d1 test               play a local test pattern (no Windows box needed)
+  d1 pair               print the one-line install command for device 1
   d1 bind-gnome         register GNOME hotkeys (Super+Shift+S/A/P/M/O)
 
 config: $CONFIG_FILE
@@ -376,6 +400,7 @@ case "${1:-help}" in
     status)       cmd_status ;;
     stop)         cmd_stop ;;
     test)         cmd_test ;;
+    pair)         cmd_pair ;;
     bind-gnome)   cmd_bind_gnome ;;
     _viewer-loop) viewer_loop ;;
     _watch)       echo $$ > "$STATE/watcher.pid"; watch_new_windows ;;
