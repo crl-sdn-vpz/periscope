@@ -39,7 +39,8 @@ windows/
                            autostart + start. Keeps an existing config.
   install-autostart.ps1    per-user scheduled task at logon (Limited run level)
 linux/
-  d1                       single bash CLI: view|mode|peek|opacity|shot|status|stop|test|pair|bind-gnome
+  d1                       single bash CLI: view|mode|peek|opacity|shot|status|stop|test|pair|menu|bind-gnome
+                           menu: full-screen terminal menu (MENU_ITEMS), runs "$0 <args>" per pick
                            internal subcommands: _viewer-loop, _watch (xprop -spy on _NET_CLIENT_LIST)
   install.sh               deps (apt/dnf/pacman), installs to ~/.local/bin, generates config, firewall,
                            prints `d1 pair`, starts the viewer. Piped from curl it downloads the repo

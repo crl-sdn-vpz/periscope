@@ -372,6 +372,74 @@ cmd_bind_gnome() {
     info "GNOME shortcuts registered"
 }
 
+# ---------- interactive menu -------------------------------------------------------
+# key|label|d1 arguments (empty = quit)
+MENU_ITEMS=(
+    "v|Start viewer|view"
+    "o|Overlay mode|mode overlay"
+    "l|Split left|mode split-left"
+    "r|Split right|mode split-right"
+    "f|Full screen|mode full"
+    "p|Peek (toggle)|peek"
+    "c|Cycle opacity|opacity cycle"
+    "0|Reset opacity|opacity reset"
+    "s|Screenshot to clipboard|shot"
+    "a|Screenshot, copy path|shot --path"
+    "w|Device 1 install command|pair"
+    "x|Stop viewer|stop"
+    "q|Quit menu|"
+)
+
+menu_frame() {   # menu_frame <selected index> <message>: the whole screen as one string
+    local sel=$1 msg=$2 i key label frame
+    frame="d1 $VERSION · periscope viewer"$'\n\n'"$("$0" status 2>&1 || true)"$'\n\n'
+    for i in "${!MENU_ITEMS[@]}"; do
+        IFS='|' read -r key label _ <<<"${MENU_ITEMS[$i]}"
+        if (( i == sel )); then frame+=$(printf '  \e[7m %s  %-26s\e[0m' "$key" "$label")$'\n'
+        else frame+=$(printf '   %s  %s' "$key" "$label")$'\n'; fi
+    done
+    frame+=$'\n'"  ↑/↓ or j/k move · Enter or a key runs · q or Esc quits"$'\n'
+    [[ -n $msg ]] && frame+=$'\n'"$msg"$'\n'
+    printf '%s' "$frame"
+}
+
+cmd_menu() {
+    [[ -t 0 && -t 1 ]] || die "d1 menu needs a terminal"
+    local sel=0 n=${#MENU_ITEMS[@]} msg="" key rest rc i pick action
+    local -a args
+    tput smcup; tput civis
+    trap 'tput cnorm; tput rmcup' EXIT
+    trap 'exit 0' INT TERM
+    while :; do
+        printf '\e[H\e[J%s' "$(menu_frame "$sel" "$msg")"
+        rc=0; key=""
+        IFS= read -rsn1 -t 2 key || rc=$?
+        (( rc > 128 )) && continue          # timeout: redraw with a fresh status
+        (( rc != 0 )) && break              # stdin closed
+        pick=-1
+        case $key in
+            "") pick=$sel ;;                # Enter
+            $'\e')
+                rest=""; IFS= read -rsn2 -t 0.05 rest || true
+                case $rest in
+                    "[A") sel=$(( (sel + n - 1) % n )) ;;
+                    "[B") sel=$(( (sel + 1) % n )) ;;
+                    "")   break ;;          # a bare Esc
+                esac ;;
+            k) sel=$(( (sel + n - 1) % n )) ;;
+            j) sel=$(( (sel + 1) % n )) ;;
+            *) for i in "${!MENU_ITEMS[@]}"; do
+                   [[ ${MENU_ITEMS[$i]%%|*} == "$key" ]] && { pick=$i; sel=$i; }
+               done ;;
+        esac
+        (( pick >= 0 )) || continue
+        action=${MENU_ITEMS[$pick]##*|}
+        [[ -n $action ]] || break
+        read -ra args <<<"$action"
+        msg=$("$0" "${args[@]}" 2>&1 || true)
+    done
+}
+
 usage() {
 cat <<EOF
 d1 $VERSION - see and capture device 1 from this machine
@@ -381,6 +449,7 @@ d1 $VERSION - see and capture device 1 from this machine
   d1 peek               toggle: fade your windows so D1 is readable, again to restore
   d1 opacity [v|cycle|reset]   overlay opacity of your windows (0-1)
   d1 shot [--path|--no-clip]   full-res PNG of D1 -> clipboard (image by default)
+  d1 menu               interactive control: arrows + Enter, or one key per action
   d1 status             stream / mode info
   d1 stop               stop the receiver and restore window opacity
   d1 test               play a local test pattern (no Windows box needed)
@@ -397,6 +466,7 @@ case "${1:-help}" in
     peek)         cmd_peek ;;
     opacity)      shift; cmd_opacity "$@" ;;
     shot|snap)    shift; cmd_shot "$@" ;;
+    menu)         cmd_menu ;;
     status)       cmd_status ;;
     stop)         cmd_stop ;;
     test)         cmd_test ;;
