@@ -42,6 +42,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create
 Re-run either command to update. Your config is kept. Both installers take a version
 (`PERISCOPE_REF=v0.2.0` before `bash` on Linux, `-Ref v0.2.0` on Windows).
 
+On device n, `d1 menu` controls everything from one terminal (arrows + Enter, or one key per
+action), and the GNOME hotkeys work without leaving what you're doing.
+
 The sections below do the same steps by hand, which helps when something fails.
 
 For a manual install, clone the repo on **both** machines
@@ -240,6 +243,7 @@ Logs:
 
 **Device n**
 ```
+d1 menu                                         interactive control (arrows + Enter, or one key)
 d1 view [overlay|split-left|split-right|full]   start the receiver
 d1 mode <mode|cycle>                            change layout
 d1 peek                                         fade / restore your windows
