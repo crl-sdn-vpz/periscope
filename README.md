@@ -25,16 +25,35 @@ device 1 to the clipboard so you can paste it into GenAI tools.
 | Device 1: Windows 10 21H2+ or Windows 11 | `winver` |
 | Two input sets | One keyboard/mouse per device, or a multi-host Bluetooth set (see section 6) |
 
-Unzip `periscope.zip` on **both** machines. Device 1 uses `windows/` and device n uses `linux/`.
+## Quick start (one command per device)
+
+**Device n (Linux)** installs the dependencies, creates the config with a random passphrase,
+opens the firewall port and starts the viewer:
+```bash
+curl -fsSL https://raw.githubusercontent.com/crl-sdn-vpz/periscope/main/linux/install.sh | bash
+```
+It ends by printing **one command for device 1** with this machine's IP, port and passphrase filled
+in (`d1 pair` prints it again). Paste it into PowerShell on **device 1 (Windows)**. It installs
+ffmpeg with winget, installs the scripts to `%LOCALAPPDATA%\periscope\app`, registers autostart and
+starts the sender:
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/crl-sdn-vpz/periscope/main/windows/install.ps1))) -TargetHost <ip> -Port 9000 -Passphrase '<passphrase>'"
+```
+Re-run either command to update. Your config is kept. Both installers take a version
+(`PERISCOPE_REF=v0.2.0` before `bash` on Linux, `-Ref v0.2.0` on Windows).
+
+The sections below do the same steps by hand, which helps when something fails.
+
+For a manual install, clone the repo on **both** machines
+(`git clone https://github.com/crl-sdn-vpz/periscope`). Device 1 uses `windows/` and device n uses `linux/`.
 
 ---
 
 ## 1. Device n (Linux): install and self-test
 
 ```bash
-cd ~/Downloads/periscope/linux        # wherever you unzipped it
-chmod +x install.sh d1
-./install.sh
+cd periscope/linux                    # wherever you cloned it
+./install.sh                          # --no-start: install only
 ```
 
 The installer:
@@ -43,15 +62,10 @@ The installer:
 - creates `~/.config/periscope/config` with a random passphrase
 - opens UDP port 9000 if `ufw`/`firewalld` is active
 - offers GNOME hotkeys
+- prints the device 1 install command and starts the viewer (`d1 view`)
 
-**Copy the three lines it prints at the end** (`TargetHost`, `Port`, `Passphrase`). You'll need
-them on device 1.
-
-Lost them? Run these to see them again:
-```bash
-hostname -I | awk '{print $1}'                      # TargetHost
-grep -E '^(PORT|PASSPHRASE)=' ~/.config/periscope/config
-```
+The printed command holds the three values device 1 needs (`TargetHost`, `Port`, `Passphrase`).
+Run `d1 pair` to see it again.
 
 ### Self-test (no Windows needed)
 ```bash
@@ -88,7 +102,7 @@ ffmpeg -hide_banner -protocols | Select-String srt          # must print "srt"
 
 Go to the folder and unblock the downloaded scripts:
 ```powershell
-cd $HOME\Downloads\periscope\windows      # wherever you unzipped it
+cd $HOME\periscope\windows      # wherever you cloned it
 Get-ChildItem -Recurse | Unblock-File
 notepad .\periscope.config.ps1
 ```
@@ -188,7 +202,7 @@ Run these with the stream up and tick each one:
 Crisp terminal text over the feed (recommended): use kitty with background-only transparency:
 ```bash
 sudo apt install kitty
-echo "include $HOME/Downloads/periscope/linux/kitty-periscope.conf" >> ~/.config/kitty/kitty.conf
+echo "include $HOME/periscope/linux/kitty-periscope.conf" >> ~/.config/kitty/kitty.conf
 ```
 
 ---
@@ -231,12 +245,13 @@ d1 mode <mode|cycle>                            change layout
 d1 peek                                         fade / restore your windows
 d1 opacity [0-1|cycle|reset]                    opacity of your windows
 d1 shot [--path|--no-clip]                      full-res PNG of device 1
-d1 status | d1 stop | d1 test | d1 bind-gnome
+d1 status | d1 stop | d1 test | d1 pair | d1 bind-gnome
 ```
 Config: `~/.config/periscope/config`
 
-**Device 1** (in the `windows` folder)
+**Device 1** (in `%LOCALAPPDATA%\periscope\app` after the one-command install, or the `windows` folder)
 ```
+.\install.ps1            install / update, configure, autostart and start (-TargetHost -Port -Passphrase -Ref)
 .\start.cmd              start hidden
 .\status.ps1             running? last log lines
 .\stop.ps1               stop

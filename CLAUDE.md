@@ -34,11 +34,16 @@ windows/
                            logs + rotation in %LOCALAPPDATA%\periscope\
   start.cmd                launches sender via `conhost --headless` (Win10 21H2+/Win11)
   stop.ps1 / status.ps1    stop via stop-file + kill ffmpeg matched by `service_name=periscope`
+  install.ps1              one-command install (irm | scriptblock): downloads the repo zip, copies to
+                           %LOCALAPPDATA%\periscope\app, sets TargetHost/Port/Passphrase, winget ffmpeg,
+                           autostart + start. Keeps an existing config.
   install-autostart.ps1    per-user scheduled task at logon (Limited run level)
 linux/
-  d1                       single bash CLI: view|mode|peek|opacity|shot|status|stop|test|bind-gnome
+  d1                       single bash CLI: view|mode|peek|opacity|shot|status|stop|test|pair|bind-gnome
                            internal subcommands: _viewer-loop, _watch (xprop -spy on _NET_CLIENT_LIST)
-  install.sh               deps (apt/dnf/pacman), installs to ~/.local/bin, generates config, firewall
+  install.sh               deps (apt/dnf/pacman), installs to ~/.local/bin, generates config, firewall,
+                           prints `d1 pair`, starts the viewer. Piped from curl it downloads the repo
+                           tarball first (PERISCOPE_REF). Questions read /dev/tty, not stdin.
   config.example           sourced bash config → ~/.config/periscope/config (chmod 600)
   kitty-periscope.conf     background-only transparency for terminals
 tests/

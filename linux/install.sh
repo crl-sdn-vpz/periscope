@@ -1,7 +1,32 @@
 #!/usr/bin/env bash
-# Installs the Periscope viewer (d1) on device n.
+# Installs and starts the Periscope viewer (d1) on device n.
+#
+# From a checkout:  linux/install.sh [--no-start]
+# One command:      curl -fsSL https://raw.githubusercontent.com/crl-sdn-vpz/periscope/main/linux/install.sh | bash
+#                   (add  -s -- --no-start  to only install; PERISCOPE_REF=<tag|branch> pins a version)
 set -euo pipefail
-here=$(cd "$(dirname "$0")" && pwd)
+
+REPO="crl-sdn-vpz/periscope"
+start=1
+for arg in "$@"; do
+    case $arg in
+        --no-start) start=0 ;;
+        *) echo "usage: install.sh [--no-start]" >&2; exit 2 ;;
+    esac
+done
+
+# Piped into bash there are no sibling files: fetch the repo and run the installer from it.
+src=${BASH_SOURCE[0]:-}
+if [[ -z "$src" || ! -f "$(dirname "$src")/d1" ]]; then
+    ref=${PERISCOPE_REF:-main}
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    echo "==> Downloading periscope ($ref)"
+    curl -fsSL "https://github.com/$REPO/archive/$ref.tar.gz" | tar -xz -C "$tmp" --strip-components=1
+    bash "$tmp/linux/install.sh" "$@"
+    exit
+fi
+here=$(cd "$(dirname "$src")" && pwd)
 
 pkgs_apt="mpv socat wmctrl xdotool x11-utils x11-xserver-utils xclip wl-clipboard libnotify-bin ffmpeg"
 pkgs_dnf="mpv socat wmctrl xdotool xprop xrandr xclip wl-clipboard libnotify ffmpeg"
@@ -21,6 +46,7 @@ fi
 echo "==> Installing d1 to ~/.local/bin"
 mkdir -p "$HOME/.local/bin"
 install -m 755 "$here/d1" "$HOME/.local/bin/d1"
+d1="$HOME/.local/bin/d1"
 
 cfg="${XDG_CONFIG_HOME:-$HOME/.config}/periscope/config"
 if [[ ! -f "$cfg" ]]; then
@@ -32,8 +58,7 @@ if [[ ! -f "$cfg" ]]; then
     chmod 600 "$cfg"
     echo "==> Created $cfg"
 fi
-pass=$(grep '^PASSPHRASE=' "$cfg" | cut -d= -f2-)
-port=$(grep '^PORT=' "$cfg" | cut -d= -f2- || echo 9000)
+port=$(grep '^PORT=' "$cfg" | cut -d= -f2- || true)
 
 if command -v ufw >/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
     echo "==> Opening UDP ${port:-9000} in ufw"; sudo ufw allow "${port:-9000}/udp"
@@ -44,17 +69,20 @@ fi
 
 [[ ":$PATH:" == *":$HOME/.local/bin:"* ]] || echo "!! Add ~/.local/bin to your PATH"
 
-if [[ "${XDG_CURRENT_DESKTOP:-}" == *GNOME* ]]; then
-    read -r -p "Register GNOME hotkeys (Super+Shift+S/A/P/M/O)? [Y/n] " a
-    [[ ${a:-y} =~ ^[Yy]$ ]] && "$HOME/.local/bin/d1" bind-gnome
+# stdin is the script itself when piped from curl, so questions go to the terminal.
+if [[ "${XDG_CURRENT_DESKTOP:-}" == *GNOME* ]] && { : </dev/tty; } 2>/dev/null; then
+    read -r -p "Register GNOME hotkeys (Super+Shift+S/A/P/M/O)? [Y/n] " a </dev/tty
+    [[ ${a:-y} =~ ^[Yy]$ ]] && "$d1" bind-gnome
 fi
 
 echo
-echo "Put these in windows\\periscope.config.ps1 on device 1:"
-echo "    TargetHost = \"$(hostname -I 2>/dev/null | awk '{print $1}')\""
-echo "    Port       = ${port:-9000}"
-echo "    Passphrase = \"$pass\""
+"$d1" pair
 echo
-echo "Then:  d1 test   (local test pattern)   |   d1 view   (wait for device 1)"
 [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]] && echo "Note: you're on Wayland. Log into an X11/Xorg session for window opacity and split placement (README > Wayland)."
-true
+
+if (( start )) && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+    "$d1" view
+    echo "Viewer started and waiting for device 1.  Control it with:  d1 menu"
+else
+    echo "Start the viewer with:  d1 view     (or d1 test for a local test pattern; d1 menu to control it)"
+fi
