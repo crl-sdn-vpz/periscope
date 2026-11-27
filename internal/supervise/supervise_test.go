@@ -58,3 +58,25 @@ func TestTailWriterKeepsLastLines(t *testing.T) {
 		t.Fatalf("tail = %q", got)
 	}
 }
+
+// A grandchild that inherits stderr (e.g. the real ffmpeg behind a launcher shim) must not keep Run
+// from returning after cancel: exec's Wait would block until every writer closes the pipe.
+func TestCancelDoesNotWaitForGrandchildren(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error)
+	go func() {
+		done <- Run(ctx, Options{
+			Name:       "shim",
+			Command:    func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "sh", "-c", "sleep 30 & wait") },
+			Log:        log.New(io.Discard, "", 0),
+			MinBackoff: time.Second, MaxBackoff: time.Second, ResetAfter: time.Hour,
+		})
+	}()
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run blocked on a grandchild holding stderr")
+	}
+}

@@ -35,6 +35,9 @@ func Run(ctx context.Context, o Options) error {
 	for ctx.Err() == nil {
 		tail := &tailWriter{max: 2}
 		cmd := o.Command(ctx)
+		// After cancel, stop waiting for the stderr pipe once the child is dead: a grandchild that
+		// inherited it (the real ffmpeg behind a launcher shim) would otherwise block Wait forever.
+		cmd.WaitDelay = 2 * time.Second
 		if o.Stderr != nil {
 			cmd.Stderr = io.MultiWriter(o.Stderr, tail)
 		} else {
