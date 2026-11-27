@@ -1,0 +1,105 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install tools and e2e dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q just shellcheck xvfb openbox mpv ffmpeg socat wmctrl xdotool \
+            x11-utils x11-apps xfonts-base
+      - run: just lint
+      - run: just test
+      - run: just e2e
+      - run: just dist
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: PowerShell scripts parse in Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $bad = 0
+          Get-ChildItem -Path windows, install -Filter *.ps1 | ForEach-Object {
+            $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errs) | Out-Null
+            foreach ($e in $errs) { $bad++; Write-Host ("{0}:{1} {2}" -f $_.Name, $e.Extent.StartLineNumber, $e.Message) }
+          }
+          if ($bad) { exit 1 }
+      - run: go test ./...
+      - name: Build the release files the installer downloads
+        shell: bash
+        run: |
+          mkdir dist
+          CGO_ENABLED=0 go build -ldflags "-X main.version=ci" -o dist/periscope_windows_amd64.exe ./cmd/periscope
+          cd dist && sha256sum periscope_windows_amd64.exe > SHA256SUMS
+      - name: ffmpeg with SRT
+        shell: powershell
+        run: |
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { choco install ffmpeg -y --no-progress }
+          if (-not (ffmpeg -hide_banner -protocols | Select-String -Pattern '^\s*srt$')) { throw "this ffmpeg has no SRT support" }
+      - name: install.ps1 end to end, then stream a test pattern into an SRT listener
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $srv = Start-Process -FilePath python -ArgumentList "-m","http.server","8765","--directory","dist" -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 3
+          $env:PERISCOPE_DOWNLOAD_BASE = "http://127.0.0.1:8765"
+          & .\install\install.ps1 -Role send -TargetHost 127.0.0.1 -Port 9000 -Passphrase 'abcdefghij12345'
+          $exe = "$env:LOCALAPPDATA\periscope\bin\periscope.exe"
+
+          & $exe send status
+          if ($LASTEXITCODE -ne 0) {
+            Get-ScheduledTaskInfo -TaskName PeriscopeSender | Format-List
+            throw "the scheduled task did not start the sender"
+          }
+
+          # Switch to the test pattern and run a viewer stand-in: ffmpeg as the SRT listener.
+          & $exe send stop
+          & $exe config set send.capture test
+          $listen = Start-Process -FilePath ffmpeg -PassThru -WindowStyle Hidden -ArgumentList @(
+            "-hide_banner", "-loglevel", "error", "-i",
+            "srt://0.0.0.0:9000?mode=listener&latency=80000&pbkeylen=16&passphrase=abcdefghij12345",
+            "-t", "20", "-f", "null", "-")
+          Start-Sleep -Seconds 2
+          Start-ScheduledTask -TaskName PeriscopeSender
+          $streaming = $false
+          for ($i = 0; $i -lt 30 -and -not $streaming; $i++) {
+            Start-Sleep -Seconds 1
+            $s = & $exe send status
+            $streaming = ($s -match "streaming to")
+          }
+          & $exe send status
+          Get-Content "$env:LOCALAPPDATA\periscope\sender.log" -Tail 15
+          if (-not $streaming) { throw "the sender never reported streaming" }
+
+          & $exe send stop
+          Start-Sleep -Seconds 2
+          $left = Get-CimInstance Win32_Process -Filter "Name = 'ffmpeg.exe'" |
+                  Where-Object { $_.CommandLine -like "*service_name=periscope*" }
+          if ($left) { throw "ffmpeg outlived the sender" }
+          Stop-Process -Id $listen.Id, $srv.Id -ErrorAction SilentlyContinue
+      - name: Desktop capture probe (informational)
+        if: always()
+        continue-on-error: true
+        shell: powershell
+        run: |
+          ffmpeg -hide_banner -loglevel error -f lavfi -i "ddagrab=output_idx=0:framerate=5,hwdownload,format=bgra" -frames:v 3 -f null -
+          "ddagrab exit code: $LASTEXITCODE"
