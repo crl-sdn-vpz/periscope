@@ -1,6 +1,6 @@
 # 0001. A Go binary for any-device-to-any-device streaming
 
-Date: 2026-11-27 / Status: proposed
+Date: 2026-11-27 / Status: accepted
 
 Context: v0.2 has a Windows-only sender (PowerShell) and a Linux-only viewer (bash). The owner wants
 any device to send and any device to view, whatever the OS, with control from the viewing side and a
@@ -19,7 +19,7 @@ Options considered:
   any machine), Win32 calls through `golang.org/x/sys/windows` without cgo, and a good stdlib for TLS,
   JSON and processes.
 
-Decision (to confirm):
+Decision:
 - **One binary, `periscope`, with roles instead of device types.** `periscope send` (capture → ffmpeg
   → SRT caller) and `periscope view` (SRT listener → mpv) run on any supported OS. One machine can do
   both. `d1`/`sender.ps1` stay until the Go version matches them, then become thin wrappers or go away.
