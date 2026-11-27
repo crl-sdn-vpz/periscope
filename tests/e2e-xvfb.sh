@@ -41,10 +41,16 @@ opacity_of() { xprop -id "$1" _NET_WM_WINDOW_OPACITY 2>/dev/null | awk -F' = ' '
 
 openbox >/dev/null 2>&1 & WM=$!
 sleep 1
+echo "== config checks"
+check "empty passphrase refused" bash -c "XDG_CONFIG_HOME='$TMP/none' '$D1' view 2>&1 | grep -q 'must be 10-79'"
+check "no viewer after refusal"  bash -c "! test -f '$XDG_RUNTIME_DIR/periscope/viewer.pid'"
+
 echo "== viewer"
 "$D1" view >/dev/null 2>&1
 check "viewer pid alive"        test -f "$XDG_RUNTIME_DIR/periscope/viewer.pid"
 check "ipc socket exists"       test -S "$XDG_RUNTIME_DIR/periscope/mpv.sock"
+check "unknown mode refused"    bash -c "! '$D1' mode bogus"
+check "unknown mode not saved"  bash -c "[[ \$(cat '$XDG_RUNTIME_DIR/periscope/mode') == overlay ]]"
 
 echo "== stream 2560x1440"
 send 2560x1440 12 & S1=$!
@@ -92,6 +98,14 @@ echo "== stop"
 "$D1" stop >/dev/null 2>&1; sleep 0.5
 check "viewer stopped"          bash -c "! test -f '$XDG_RUNTIME_DIR/periscope/viewer.pid'"
 [[ -z "$(opacity_of "$app")" ]] && ok "opacity restored" || fail "opacity not restored"
+
+echo "== hung viewer (IPC socket that never answers)"
+socat "UNIX-LISTEN:$XDG_RUNTIME_DIR/periscope/mpv.sock,fork" SYSTEM:'sleep 10' 2>/dev/null & HUNG=$!
+sleep 60 & echo $! > "$XDG_RUNTIME_DIR/periscope/viewer.pid"
+sleep 0.5
+check "status fails loudly"     bash -c "'$D1' status 2>&1 | grep -q 'did not answer'"
+check "stop still cleans up"    bash -c "'$D1' stop && ! test -f '$XDG_RUNTIME_DIR/periscope/viewer.pid'"
+kill "$HUNG" 2>/dev/null
 
 kill "$WM" 2>/dev/null
 echo

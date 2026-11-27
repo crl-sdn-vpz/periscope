@@ -39,18 +39,37 @@ alive() { local f="$STATE/$1.pid"; [[ -f "$f" ]] && kill -0 "$(cat "$f")" 2>/dev
 
 json_str() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; printf '"%s"' "$s"; }
 
-ipc() {   # ipc '{"command":[...]}'  -> prints JSON reply
+ipc() {   # ipc '{"command":[...]}'  -> prints JSON reply; dies if mpv doesn't answer
     [[ -S "$SOCK" ]] || die "viewer is not running (run: d1 view)"
-    printf '%s\n' "$1" | socat -t 3 - "UNIX-CONNECT:$SOCK" 2>/dev/null | grep -v '"event"' | head -n1
+    local reply
+    # (|| true: grep exits 1 on an empty reply, which pipefail would turn into a silent set -e exit)
+    reply=$(printf '%s\n' "$1" | socat -t 3 - "UNIX-CONNECT:$SOCK" 2>/dev/null | grep -v '"event"' || true)
+    [[ -n "$reply" ]] || die "viewer did not answer over IPC (see $STATE/mpv.log; d1 stop && d1 view restarts it)"
+    printf '%s\n' "${reply%%$'\n'*}"
 }
 ipc_get() { ipc "{\"command\":[\"get_property\",\"$1\"]}" | sed -n 's/.*"data":\([^,}]*\).*/\1/p' | tr -d '"'; }
 ipc_set() { ipc "{\"command\":[\"set_property\",\"$1\",$2]}" >/dev/null; }
 
-srt_url() {
-    local lat_us=$(( LATENCY_MS * 1000 ))
-    local url="srt://0.0.0.0:${PORT}?mode=listener&latency=${lat_us}&pbkeylen=16"
-    [[ -n "$PASSPHRASE" ]] && url+="&passphrase=${PASSPHRASE}"
-    printf '%s' "$url"
+urlencode() {   # percent-encodes everything but RFC 3986 unreserved chars (matches [uri]::EscapeDataString)
+    local LC_ALL=C s=$1 out="" c i
+    for (( i = 0; i < ${#s}; i++ )); do
+        c=${s:i:1}
+        case $c in
+            [A-Za-z0-9._~-]) out+=$c ;;
+            *) printf -v c '%%%02X' "'$c"; out+=$c ;;
+        esac
+    done
+    printf '%s' "$out"
+}
+
+require_passphrase() {   # the sender always encrypts, so an unencrypted listener could never connect
+    (( ${#PASSPHRASE} >= 10 && ${#PASSPHRASE} <= 79 )) \
+        || die "PASSPHRASE in $CONFIG_FILE must be 10-79 characters (it is ${#PASSPHRASE}); use the same one as device 1"
+}
+
+srt_url() {   # srt_url <listener|caller> <host>
+    printf 'srt://%s:%s?mode=%s&latency=%s&pbkeylen=16&passphrase=%s' \
+        "$2" "$PORT" "$1" "$(( LATENCY_MS * 1000 ))" "$(urlencode "$PASSPHRASE")"
 }
 
 d1_wid() { have xdotool && xdotool search --name "^${TITLE}\$" 2>/dev/null | head -n1 || true; }
@@ -118,8 +137,12 @@ watch_new_windows() {
 # ---------- layout modes ----------------------------------------------------------
 wait_wid() { local w; for _ in $(seq 1 50); do w=$(d1_wid); [[ -n "$w" ]] && { echo "$w"; return; }; sleep 0.1; done; }
 
+MODES="overlay split-left split-right full"
+require_mode() { [[ " $MODES " == *" $1 "* ]] || die "unknown mode '$1' (${MODES// / | })"; }
+
 set_mode() {
     local mode=$1 wid
+    require_mode "$mode"
     echo "$mode" > "$STATE/mode"
     if is_wayland; then
         case $mode in
@@ -148,7 +171,6 @@ set_mode() {
             sleep 0.15
             wmctrl -i -r "$wid" -e "0,$x,$my,$w,$mh"
             apply_opacity 1 ;;
-        *) die "unknown mode '$mode' (overlay | split-left | split-right | full)";;
     esac
     rm -f "$STATE/peek"
 }
@@ -168,7 +190,7 @@ viewer_loop() {   # runs detached; restarts mpv if it ever dies
 f cycle fullscreen
 EOF
     while [[ ! -f "$STATE/stop" ]]; do
-        mpv "$(srt_url)" \
+        mpv "$(srt_url listener 0.0.0.0)" \
             --title="$TITLE" --x11-name=periscope --wayland-app-id=periscope \
             --profile=low-latency --untimed --no-cache \
             --demuxer-lavf-o-add=fflags=+nobuffer --demuxer-lavf-probesize=32 --demuxer-lavf-analyzeduration=0.2 \
@@ -187,9 +209,11 @@ EOF
 }
 
 cmd_view() {
+    local mode=${1:-$DEFAULT_MODE}
+    require_mode "$mode"
+    require_passphrase
     have mpv   || die "mpv not installed (run install.sh)"
     have socat || die "socat not installed (run install.sh)"
-    local mode=${1:-$DEFAULT_MODE}
     if ! alive viewer; then
         rm -f "$SOCK"
         setsid "$0" _viewer-loop </dev/null >/dev/null 2>&1 &
@@ -204,7 +228,8 @@ cmd_view() {
 
 cmd_stop() {
     touch "$STATE/stop"
-    [[ -S "$SOCK" ]] && ipc '{"command":["quit"]}' >/dev/null 2>&1 || true
+    # Subshell: ipc dies when mpv is hung, and stop must still clean up.
+    [[ -S "$SOCK" ]] && { ( ipc '{"command":["quit"]}' ) >/dev/null 2>&1 || true; }
     local p; for p in viewer watcher; do
         alive "$p" && { pkill -P "$(cat "$STATE/$p.pid")" 2>/dev/null || true; kill "$(cat "$STATE/$p.pid")" 2>/dev/null || true; }
         rm -f "$STATE/$p.pid"
@@ -284,11 +309,11 @@ cmd_peek() {   # toggle: fade your windows almost fully so D1 is readable
 
 # ---------- test pattern (no Windows box needed) ------------------------------------
 cmd_test() {
+    require_passphrase
     have ffmpeg || die "ffmpeg not installed"
     alive viewer || cmd_view
     info "sending a 1920x1080 test pattern to localhost:$PORT  (Ctrl+C to stop)"
-    local url="srt://127.0.0.1:${PORT}?mode=caller&latency=$(( LATENCY_MS * 1000 ))&pbkeylen=16"
-    [[ -n "$PASSPHRASE" ]] && url+="&passphrase=${PASSPHRASE}"
+    local url; url=$(srt_url caller 127.0.0.1)
     ffmpeg -hide_banner -loglevel warning -re -f lavfi -i "testsrc2=size=1920x1080:rate=30" \
         -vf "drawtext=text='%{localtime\:%T}':fontsize=96:fontcolor=white:box=1:boxcolor=black@0.6:x=40:y=40,format=yuv444p" \
         -c:v libx264 -preset ultrafast -tune zerolatency -crf 18 -g 60 -bf 0 \
