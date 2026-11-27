@@ -2,7 +2,7 @@
 # End-to-end test of the Linux viewer (linux/d1) on a virtual X display.
 # Simulates the Windows sender with ffmpeg using the same encoder settings as windows/sender.ps1.
 #
-# Requires: xvfb-run, openbox, mpv (with srt), ffmpeg (with libsrt), socat, wmctrl, xdotool, xprop, xmessage
+# Requires: xvfb-run, openbox, mpv (with srt), ffmpeg (with libsrt), socat, wmctrl, xdotool, xprop, xmessage, xfonts-base
 # Usage:    tests/e2e-xvfb.sh            (wraps itself in xvfb-run)
 set -uo pipefail
 

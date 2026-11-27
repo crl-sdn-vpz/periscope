@@ -270,7 +270,7 @@ Config: `periscope.config.ps1`
 - Technical context for contributors and Claude Code: [`CLAUDE.md`](CLAUDE.md)
 - Viewer end-to-end test (virtual display, simulated sender):
   ```bash
-  sudo apt install xvfb openbox mpv ffmpeg socat wmctrl xdotool x11-utils x11-apps shellcheck
+  sudo apt install xvfb openbox mpv ffmpeg socat wmctrl xdotool x11-utils x11-apps xfonts-base shellcheck
   just check      # shellcheck + tests/e2e-xvfb.sh (or run them one by one: just lint, just e2e)
   ```
 - Don't commit a filled-in `windows/periscope.config.ps1`, because it holds your passphrase.

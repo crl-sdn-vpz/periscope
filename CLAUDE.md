@@ -70,7 +70,7 @@ justfile                   lint | e2e | check
 ## Testing
 ```bash
 just check                 # = just lint (shellcheck -S warning) + just e2e (tests/e2e-xvfb.sh)
-                           # e2e deps: xvfb openbox mpv ffmpeg socat wmctrl xdotool x11-utils x11-apps
+                           # e2e deps: xvfb openbox mpv ffmpeg socat wmctrl xdotool x11-utils x11-apps xfonts-base
 ```
 Windows scripts have no automated test. Verify them by hand with the foreground run
 (`powershell -File sender.ps1`) and `status.ps1`. To sanity-check the generated ffmpeg args on
