@@ -1,0 +1,359 @@
+#!/usr/bin/env bash
+# d1 - Periscope viewer for device n (Linux).
+# Receives device 1's screen over encrypted SRT, keeps it as the background layer,
+# makes your own windows translucent on top, and grabs full-res screenshots to the clipboard.
+set -euo pipefail
+
+VERSION="0.1.0"
+CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/periscope/config"
+
+# ---------- defaults (override in $CONFIG_FILE) ------------------------------------
+PORT=9000
+PASSPHRASE=""
+LATENCY_MS=80
+SCREEN=0                      # which monitor of device n shows the D1 feed
+SHOT_DIR="$HOME/Pictures/periscope"
+OVERLAY_OPACITY=0.80          # opacity of your windows over the D1 feed (overlay mode)
+PEEK_OPACITY=0.12             # opacity while "peeking" at D1
+OPACITY_STEPS="0.90 0.75 0.55 0.35"
+OVERLAY_INCLUDE=""            # regex on WM_CLASS; empty = every window
+OVERLAY_EXCLUDE="kitty|Alacritty|wezterm"   # these keep their own (background-only) transparency
+SPLIT_RATIO=0.60              # share of the screen the D1 feed gets in split mode
+DEFAULT_MODE=overlay          # overlay | split-left | split-right | full
+# shellcheck source=/dev/null
+[[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
+
+STATE="${XDG_RUNTIME_DIR:-/tmp/periscope-$UID}/periscope"
+mkdir -p "$STATE" "$SHOT_DIR"
+SOCK="$STATE/mpv.sock"
+TITLE="PERISCOPE-D1"
+
+# ---------- helpers ---------------------------------------------------------------
+die()  { echo "d1: $*" >&2; exit 1; }
+info() { echo "d1: $*" >&2; }
+have() { command -v "$1" >/dev/null 2>&1; }
+is_wayland() { [[ "${XDG_SESSION_TYPE:-}" == "wayland" || ( -n "${WAYLAND_DISPLAY:-}" && -z "${DISPLAY:-}" ) ]]; }
+notify() { have notify-send && notify-send -a periscope -t 1500 "$@" 2>/dev/null || true; }
+
+alive() { local f="$STATE/$1.pid"; [[ -f "$f" ]] && kill -0 "$(cat "$f")" 2>/dev/null; }
+
+json_str() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; printf '"%s"' "$s"; }
+
+ipc() {   # ipc '{"command":[...]}'  -> prints JSON reply
+    [[ -S "$SOCK" ]] || die "viewer is not running (run: d1 view)"
+    printf '%s\n' "$1" | socat -t 3 - "UNIX-CONNECT:$SOCK" 2>/dev/null | grep -v '"event"' | head -n1
+}
+ipc_get() { ipc "{\"command\":[\"get_property\",\"$1\"]}" | sed -n 's/.*"data":\([^,}]*\).*/\1/p' | tr -d '"'; }
+ipc_set() { ipc "{\"command\":[\"set_property\",\"$1\",$2]}" >/dev/null; }
+
+srt_url() {
+    local lat_us=$(( LATENCY_MS * 1000 ))
+    local url="srt://0.0.0.0:${PORT}?mode=listener&latency=${lat_us}&pbkeylen=16"
+    [[ -n "$PASSPHRASE" ]] && url+="&passphrase=${PASSPHRASE}"
+    printf '%s' "$url"
+}
+
+d1_wid() { have xdotool && xdotool search --name "^${TITLE}\$" 2>/dev/null | head -n1 || true; }
+
+monitor_geom() {  # prints "x y w h" of monitor $SCREEN
+    if have xrandr; then
+        local line
+        line=$(xrandr --listactivemonitors 2>/dev/null | awk -v n="$SCREEN" '$1==n":" {print $3}')
+        if [[ $line =~ ^([0-9]+)/[0-9]+x([0-9]+)/[0-9]+\+([0-9]+)\+([0-9]+)$ ]]; then
+            echo "${BASH_REMATCH[3]} ${BASH_REMATCH[4]} ${BASH_REMATCH[1]} ${BASH_REMATCH[2]}"; return
+        fi
+    fi
+    local wh; wh=$(xdotool getdisplaygeometry); echo "0 0 $wh"
+}
+
+# ---------- window opacity (X11 + compositor) -------------------------------------
+to_cardinal() { awk -v o="$1" 'BEGIN{ if(o>1)o=1; if(o<0)o=0; printf "0x%08x", int(o*4294967295) }'; }
+
+overlay_wids() {
+    local d1; d1=$(d1_wid); d1=$(printf '0x%08x' "${d1:-0}")
+    wmctrl -l 2>/dev/null | while read -r wid desk _; do
+        [[ "$desk" == "-1" ]] && continue                     # desktop, panels, docks
+        [[ "$(printf '0x%08x' "$wid")" == "$d1" ]] && continue
+        local cls; cls=$(xprop -id "$wid" WM_CLASS 2>/dev/null | cut -d= -f2-)
+        [[ -n "$OVERLAY_INCLUDE" && ! "$cls" =~ $OVERLAY_INCLUDE ]] && continue
+        [[ -n "$OVERLAY_EXCLUDE" && "$cls" =~ $OVERLAY_EXCLUDE ]] && continue
+        echo "$wid"
+    done
+}
+
+set_win_opacity() {
+    local wid=$1 o=$2
+    if awk -v o="$o" 'BEGIN{exit !(o>=0.999)}'; then
+        xprop -id "$wid" -remove _NET_WM_WINDOW_OPACITY 2>/dev/null || true
+    else
+        xprop -id "$wid" -f _NET_WM_WINDOW_OPACITY 32c -set _NET_WM_WINDOW_OPACITY "$(to_cardinal "$o")" 2>/dev/null || true
+    fi
+}
+
+current_opacity() { cat "$STATE/opacity" 2>/dev/null || echo 1; }
+
+apply_opacity() {   # apply_opacity <value>  (to all overlay windows)
+    if is_wayland; then
+        info "window opacity needs an X11 session (see README > Wayland). Terminal background transparency still works."
+        return 0
+    fi
+    have wmctrl && have xprop || die "missing wmctrl/xprop"
+    echo "$1" > "$STATE/opacity"
+    local wid; for wid in $(overlay_wids); do set_win_opacity "$wid" "$1"; done
+}
+
+# Keeps newly opened windows at the current overlay opacity.
+watch_new_windows() {
+    is_wayland && return 0
+    have xprop || return 0
+    xprop -root -spy _NET_CLIENT_LIST 2>/dev/null | while read -r _; do
+        local o; o=$(current_opacity)
+        awk -v o="$o" 'BEGIN{exit !(o<0.999)}' || continue
+        for wid in $(overlay_wids); do
+            xprop -id "$wid" _NET_WM_WINDOW_OPACITY 2>/dev/null | grep -q '=' || set_win_opacity "$wid" "$o"
+        done
+    done
+}
+
+# ---------- layout modes ----------------------------------------------------------
+wait_wid() { local w; for _ in $(seq 1 50); do w=$(d1_wid); [[ -n "$w" ]] && { echo "$w"; return; }; sleep 0.1; done; }
+
+set_mode() {
+    local mode=$1 wid
+    echo "$mode" > "$STATE/mode"
+    if is_wayland; then
+        case $mode in
+            full)    ipc_set fullscreen true; ipc_set ontop true ;;
+            overlay) ipc_set ontop false; ipc_set fullscreen true ;;
+            *)       ipc_set ontop false; ipc_set fullscreen false; info "split placement is manual on Wayland (use your WM's tiling keys)";;
+        esac
+        return
+    fi
+    wid=$(wait_wid); [[ -n "$wid" ]] || die "viewer window not found"
+    case $mode in
+        overlay)
+            ipc_set ontop false; ipc_set fullscreen true
+            wmctrl -i -r "$wid" -b add,below,skip_taskbar
+            apply_opacity "$OVERLAY_OPACITY" ;;
+        full)
+            wmctrl -i -r "$wid" -b remove,below
+            ipc_set fullscreen true; ipc_set ontop true
+            apply_opacity 1 ;;
+        split-left|split-right)
+            ipc_set ontop false; ipc_set fullscreen false
+            wmctrl -i -r "$wid" -b remove,below,fullscreen,maximized_vert,maximized_horz
+            read -r mx my mw mh < <(monitor_geom)
+            local w; w=$(awk -v a="$mw" -v r="$SPLIT_RATIO" 'BEGIN{printf "%d", a*r}')
+            local x=$mx; [[ $mode == split-right ]] && x=$(( mx + mw - w ))
+            sleep 0.15
+            wmctrl -i -r "$wid" -e "0,$x,$my,$w,$mh"
+            apply_opacity 1 ;;
+        *) die "unknown mode '$mode' (overlay | split-left | split-right | full)";;
+    esac
+    rm -f "$STATE/peek"
+}
+
+cycle_mode() {
+    local cur; cur=$(cat "$STATE/mode" 2>/dev/null || echo overlay)
+    case $cur in overlay) set_mode split-left;; split-left) set_mode full;; *) set_mode overlay;; esac
+    notify "D1: $(cat "$STATE/mode")"
+}
+
+# ---------- viewer lifecycle -------------------------------------------------------
+viewer_loop() {   # runs detached; restarts mpv if it ever dies
+    echo $$ > "$STATE/viewer.pid"
+    rm -f "$STATE/stop"
+    cat > "$STATE/input.conf" <<'EOF'
+# Default bindings are off so stray keys can't close the feed.
+f cycle fullscreen
+EOF
+    while [[ ! -f "$STATE/stop" ]]; do
+        mpv "$(srt_url)" \
+            --title="$TITLE" --x11-name=periscope --wayland-app-id=periscope \
+            --profile=low-latency --untimed --no-cache \
+            --demuxer-lavf-o-add=fflags=+nobuffer --demuxer-lavf-probesize=32 --demuxer-lavf-analyzeduration=0.2 \
+            --loop-playlist=inf --idle=yes --force-window=immediate \
+            --no-audio --hwdec=auto-safe --keepaspect=yes --border=no \
+            --fs --fs-screen="$SCREEN" --screen="$SCREEN" --ontop=no \
+            --cursor-autohide=always --osd-level=0 --no-osc \
+            --no-input-default-bindings --input-conf="$STATE/input.conf" \
+            --input-ipc-server="$SOCK" \
+            --screenshot-format=png --screenshot-png-compression=1 --screenshot-tag-colorspace=no \
+            --msg-level=all=warn --log-file="$STATE/mpv.log" \
+            >/dev/null 2>&1 || true
+        [[ -f "$STATE/stop" ]] || sleep 1
+    done
+    rm -f "$STATE/viewer.pid"
+}
+
+cmd_view() {
+    have mpv   || die "mpv not installed (run install.sh)"
+    have socat || die "socat not installed (run install.sh)"
+    local mode=${1:-$DEFAULT_MODE}
+    if ! alive viewer; then
+        rm -f "$SOCK"
+        setsid "$0" _viewer-loop </dev/null >/dev/null 2>&1 &
+        if ! alive watcher; then
+            setsid "$0" _watch </dev/null >/dev/null 2>&1 &
+        fi
+        for _ in $(seq 1 50); do [[ -S "$SOCK" ]] && break; sleep 0.1; done
+        info "listening on srt://0.0.0.0:$PORT  (waiting for device 1)"
+    fi
+    set_mode "$mode"
+}
+
+cmd_stop() {
+    touch "$STATE/stop"
+    [[ -S "$SOCK" ]] && ipc '{"command":["quit"]}' >/dev/null 2>&1 || true
+    local p; for p in viewer watcher; do
+        alive "$p" && { pkill -P "$(cat "$STATE/$p.pid")" 2>/dev/null || true; kill "$(cat "$STATE/$p.pid")" 2>/dev/null || true; }
+        rm -f "$STATE/$p.pid"
+    done
+    is_wayland || { have wmctrl && apply_opacity 1 >/dev/null; }
+    rm -f "$SOCK" "$STATE/peek"
+    info "stopped"
+}
+
+cmd_status() {
+    if ! alive viewer || [[ ! -S "$SOCK" ]]; then echo "viewer : stopped"; return; fi
+    echo "viewer : running (mode: $(cat "$STATE/mode" 2>/dev/null || echo ?))"
+    local w h fps
+    w=$(ipc_get width); h=$(ipc_get height); fps=$(ipc_get container-fps)
+    if [[ -n "$w" && "$w" != "null" ]]; then
+        echo "stream : receiving ${w}x${h} @ ${fps%%.*} fps"
+    else
+        echo "stream : waiting for device 1 on port $PORT"
+    fi
+    echo "opacity: $(current_opacity)$( [[ -f $STATE/peek ]] && echo ' (peeking)')"
+    echo "shots  : $SHOT_DIR"
+}
+
+# ---------- screenshots ------------------------------------------------------------
+cmd_shot() {
+    local what=image
+    case "${1:-}" in --path) what=path;; --no-clip) what=none;; "") ;; *) die "usage: d1 shot [--path|--no-clip]";; esac
+    local w; w=$(ipc_get width)
+    [[ -n "$w" && "$w" != "null" ]] || die "no video from device 1 yet"
+    local f; f="$SHOT_DIR/d1-$(date +%Y%m%d-%H%M%S-%3N).png"
+    ipc "{\"command\":[\"screenshot-to-file\",$(json_str "$f"),\"video\"]}" >/dev/null
+    for _ in $(seq 1 40); do [[ -s "$f" ]] && break; sleep 0.05; done
+    [[ -s "$f" ]] || die "screenshot failed (see $STATE/mpv.log)"
+    ln -sfn "$f" "$SHOT_DIR/latest.png"
+
+    case $what in
+        image)
+            if is_wayland && have wl-copy; then wl-copy --type image/png < "$f"
+            elif have xclip; then xclip -selection clipboard -t image/png -i "$f"
+            else info "no clipboard tool (install xclip or wl-clipboard)"; fi ;;
+        path)
+            if is_wayland && have wl-copy; then printf '%s' "$f" | wl-copy
+            elif have xclip; then printf '%s' "$f" | xclip -selection clipboard; fi ;;
+    esac
+    notify "D1 screenshot" "$(basename "$f") ($what copied)"
+    echo "$f"
+}
+
+# ---------- opacity / peek ---------------------------------------------------------
+cmd_opacity() {
+    local v=${1:-}
+    case $v in
+        "") current_opacity ;;
+        cycle)
+            local cur next="" first=""; cur=$(current_opacity)
+            for s in $OPACITY_STEPS; do
+                [[ -z $first ]] && first=$s
+                if [[ -n $next ]]; then next=$s; break; fi
+                [[ $s == "$cur" ]] && next=pending
+            done
+            [[ -z $next || $next == pending ]] && next=$first
+            apply_opacity "$next"; notify "D1 overlay opacity $next" ;;
+        reset) apply_opacity 1 ;;
+        *) [[ $v =~ ^(0(\.[0-9]+)?|1(\.0+)?)$ ]] || die "opacity must be between 0 and 1"
+           apply_opacity "$v" ;;
+    esac
+}
+
+cmd_peek() {   # toggle: fade your windows almost fully so D1 is readable
+    if [[ -f "$STATE/peek" ]]; then
+        apply_opacity "$(cat "$STATE/peek")"; rm -f "$STATE/peek"
+    else
+        local cur; cur=$(current_opacity)
+        apply_opacity "$PEEK_OPACITY"; echo "$cur" > "$STATE/peek"
+    fi
+}
+
+# ---------- test pattern (no Windows box needed) ------------------------------------
+cmd_test() {
+    have ffmpeg || die "ffmpeg not installed"
+    alive viewer || cmd_view
+    info "sending a 1920x1080 test pattern to localhost:$PORT  (Ctrl+C to stop)"
+    local url="srt://127.0.0.1:${PORT}?mode=caller&latency=$(( LATENCY_MS * 1000 ))&pbkeylen=16"
+    [[ -n "$PASSPHRASE" ]] && url+="&passphrase=${PASSPHRASE}"
+    ffmpeg -hide_banner -loglevel warning -re -f lavfi -i "testsrc2=size=1920x1080:rate=30" \
+        -vf "drawtext=text='%{localtime\:%T}':fontsize=96:fontcolor=white:box=1:boxcolor=black@0.6:x=40:y=40,format=yuv444p" \
+        -c:v libx264 -preset ultrafast -tune zerolatency -crf 18 -g 60 -bf 0 \
+        -f mpegts -flush_packets 1 "$url"
+}
+
+# ---------- GNOME hotkeys ----------------------------------------------------------
+cmd_bind_gnome() {
+    have gsettings || die "gsettings not found (not GNOME?)"
+    local self; self=$(readlink -f "$0")
+    local schema=org.gnome.settings-daemon.plugins.media-keys
+    local base=/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings
+    local -a binds=(
+        "periscope-shot|D1: screenshot to clipboard|$self shot|<Super><Shift>s"
+        "periscope-shotpath|D1: screenshot, copy path|$self shot --path|<Super><Shift>a"
+        "periscope-peek|D1: peek (fade my windows)|$self peek|<Super><Shift>p"
+        "periscope-mode|D1: cycle layout|$self mode cycle|<Super><Shift>m"
+        "periscope-opacity|D1: cycle overlay opacity|$self opacity cycle|<Super><Shift>o"
+    )
+    local list; list=$(gsettings get $schema custom-keybindings)
+    [[ $list == "@as []" ]] && list="[]"
+    local b id name cmd key path
+    for b in "${binds[@]}"; do
+        IFS='|' read -r id name cmd key <<<"$b"
+        path="$base/$id/"
+        [[ $list == *"'$path'"* ]] || { if [[ $list == "[]" ]]; then list="['$path']"; else list="${list%]}, '$path']"; fi; }
+        gsettings set "$schema.custom-keybinding:$path" name "$name"
+        gsettings set "$schema.custom-keybinding:$path" command "$cmd"
+        gsettings set "$schema.custom-keybinding:$path" binding "$key"
+        printf '  %-22s %s\n' "$key" "$name"
+    done
+    gsettings set $schema custom-keybindings "$list"
+    info "GNOME shortcuts registered"
+}
+
+usage() {
+cat <<EOF
+d1 $VERSION - see and capture device 1 from this machine
+
+  d1 view [mode]        start the receiver (modes: overlay, split-left, split-right, full)
+  d1 mode <mode|cycle>  change layout
+  d1 peek               toggle: fade your windows so D1 is readable, again to restore
+  d1 opacity [v|cycle|reset]   overlay opacity of your windows (0-1)
+  d1 shot [--path|--no-clip]   full-res PNG of D1 -> clipboard (image by default)
+  d1 status             stream / mode info
+  d1 stop               stop the receiver and restore window opacity
+  d1 test               play a local test pattern (no Windows box needed)
+  d1 bind-gnome         register GNOME hotkeys (Super+Shift+S/A/P/M/O)
+
+config: $CONFIG_FILE
+EOF
+}
+
+case "${1:-help}" in
+    view|start)   shift; cmd_view "$@" ;;
+    mode)         shift; [[ ${1:-} == cycle ]] && cycle_mode || set_mode "${1:?mode required}" ;;
+    peek)         cmd_peek ;;
+    opacity)      shift; cmd_opacity "$@" ;;
+    shot|snap)    shift; cmd_shot "$@" ;;
+    status)       cmd_status ;;
+    stop)         cmd_stop ;;
+    test)         cmd_test ;;
+    bind-gnome)   cmd_bind_gnome ;;
+    _viewer-loop) viewer_loop ;;
+    _watch)       echo $$ > "$STATE/watcher.pid"; watch_new_windows ;;
+    -v|--version) echo "$VERSION" ;;
+    *)            usage ;;
+esac

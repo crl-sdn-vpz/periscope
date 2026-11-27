@@ -1,0 +1,17 @@
+# ~/.config/periscope/config  (sourced by d1)
+PORT=9000
+PASSPHRASE=change-me-to-a-long-random-string   # must match device 1, 10-79 chars, letters/digits
+LATENCY_MS=80              # must roughly match LatencyMs on device 1
+SCREEN=0                   # monitor index on device n for the D1 feed
+SHOT_DIR="$HOME/Pictures/periscope"
+
+DEFAULT_MODE=overlay       # overlay | split-left | split-right | full
+OVERLAY_OPACITY=0.80       # your windows over the feed
+PEEK_OPACITY=0.12          # while peeking
+OPACITY_STEPS="0.90 0.75 0.55 0.35"
+SPLIT_RATIO=0.60           # share of screen for D1 in split mode
+
+# Which windows get faded (regex on WM_CLASS). Empty include = all windows.
+OVERLAY_INCLUDE=""
+# Terminals listed here keep their own background-only transparency (text stays crisp).
+OVERLAY_EXCLUDE="kitty|Alacritty|wezterm"

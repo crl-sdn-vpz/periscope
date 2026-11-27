@@ -1,0 +1,9 @@
+# local configs with secrets
+linux/config
+*.local.ps1
+# captures / logs
+*.png
+*.log
+*.ts
+# Windows download markers (copied in via WSL)
+*:Zone.Identifier
