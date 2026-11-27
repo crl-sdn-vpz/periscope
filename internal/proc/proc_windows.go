@@ -12,12 +12,15 @@ import (
 
 var (
 	jobOnce sync.Once
-	job     windows.Handle
+	job     windows.Handle // kept open for the life of the process; closing it kills the job
 	jobErr  error
 )
 
-// killOnCloseJob is closed only when this process exits, which kills every process assigned to it.
-func killOnCloseJob() (windows.Handle, error) {
+// joinKillOnCloseJob puts this process in a job that kills every member when its last handle closes,
+// i.e. when this process exits. Children are created inside the job, and so are their children:
+// assigning each child after it starts would race with launchers such as Chocolatey's ffmpeg shim,
+// which start the real ffmpeg before the assignment and leave it orphaned.
+func joinKillOnCloseJob() error {
 	jobOnce.Do(func() {
 		h, err := windows.CreateJobObject(nil, nil)
 		if err != nil {
@@ -34,28 +37,20 @@ func killOnCloseJob() (windows.Handle, error) {
 			jobErr = fmt.Errorf("configure job object: %w", err)
 			return
 		}
+		if err := windows.AssignProcessToJobObject(h, windows.CurrentProcess()); err != nil {
+			jobErr = fmt.Errorf("join job object: %w", err)
+			return
+		}
 		job = h
 	})
-	return job, jobErr
+	return jobErr
 }
 
-func tie(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-}
-
-func afterStart(cmd *exec.Cmd) error {
-	j, err := killOnCloseJob()
-	if err != nil {
+func tie(cmd *exec.Cmd) error {
+	if err := joinKillOnCloseJob(); err != nil {
 		return err
 	}
-	h, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(cmd.Process.Pid))
-	if err != nil {
-		return fmt.Errorf("open child process: %w", err)
-	}
-	defer windows.CloseHandle(h)
-	if err := windows.AssignProcessToJobObject(j, h); err != nil {
-		return fmt.Errorf("assign child to job: %w", err)
-	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	return nil
 }
 

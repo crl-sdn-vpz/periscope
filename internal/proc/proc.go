@@ -3,14 +3,13 @@ package proc
 
 import "os/exec"
 
-// Start starts cmd so that it dies with this process where the OS allows it
-// (Linux: parent-death signal; Windows: a kill-on-close job object).
+// Start starts cmd so that it dies with this process where the OS allows it (Linux: parent-death
+// signal; Windows: this process joins a kill-on-close job, which every child is created in).
 func Start(cmd *exec.Cmd) error {
-	tie(cmd)
-	if err := cmd.Start(); err != nil {
+	if err := tie(cmd); err != nil {
 		return err
 	}
-	return afterStart(cmd)
+	return cmd.Start()
 }
 
 // Detach makes cmd outlive this process and its terminal (a new session / process group).
