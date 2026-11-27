@@ -7,3 +7,5 @@ linux/config
 *.ts
 # Windows download markers (copied in via WSL)
 *:Zone.Identifier
+bin/
+dist/

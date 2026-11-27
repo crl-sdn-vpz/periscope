@@ -265,14 +265,45 @@ Config: `periscope.config.ps1`
 
 ---
 
-## 9. Development
+## 9. Preview: the `periscope` binary (any device to any device)
+
+v0.3 replaces the two script sets with one Go binary, `periscope`, with roles instead of device
+types ([ADR 0001](docs/adr/0001-go-cross-platform-core.md)). It does everything above, plus:
+a local control socket instead of state files, `periscope pair` with ready-to-paste commands for
+any sending device, and a sender that can also run on Linux (X11). ffmpeg and mpv stay the engines.
+
+Status: it passes the same end-to-end checks as the scripts (Linux), and CI runs the Windows sender
+and installer on a Windows runner. **Until it ships as a GitHub release and has been tested on a
+real Windows → Linux pair, the scripts above stay the default.** Once released:
+
+```bash
+# Viewing device (Linux): installs, starts the viewer, prints the command for the sending device
+curl -fsSL https://raw.githubusercontent.com/crl-sdn-vpz/periscope/main/install/install.sh | bash
+periscope pair      # Windows and Linux one-liners for the sending device, values filled in
+periscope menu      # arrows + Enter, or one key per action
+```
+
+| v0.2 scripts | periscope |
+|---|---|
+| `d1 view / mode / peek / opacity / shot / status / stop / test / pair / menu / bind-gnome` | same subcommands: `periscope view`, `periscope mode cycle`, ... |
+| `windows\sender.ps1`, `start.cmd`, `stop.ps1`, `status.ps1` | `periscope send`, `send --detach`, `send stop`, `send status` |
+| `~/.config/periscope/config` + `periscope.config.ps1` | one JSON file per device: `periscope config init / get / set / show` |
+
+Build it from source: `just build` (Go 1.24+) → `bin/periscope`.
+
+---
+
+## 10. Development
 
 - Technical context for contributors and Claude Code: [`CLAUDE.md`](CLAUDE.md)
-- Viewer end-to-end test (virtual display, simulated sender):
+- Needs Go 1.24+ and `just`. End-to-end tests run on a virtual display:
   ```bash
   sudo apt install xvfb openbox mpv ffmpeg socat wmctrl xdotool x11-utils x11-apps xfonts-base shellcheck
-  just check      # shellcheck + tests/e2e-xvfb.sh (or run them one by one: just lint, just e2e)
+  just check      # lint (gofmt, go vet for linux/windows/darwin, shellcheck) + unit tests + both e2e suites
+  just dist       # release binaries + SHA256SUMS in dist/
   ```
+- CI (`.github/workflows/ci.yml`) runs the same on Ubuntu, and on Windows it parses every `.ps1` in
+  Windows PowerShell 5.1, runs `install/install.ps1` end to end and streams into an SRT listener.
 - Don't commit a filled-in `windows/periscope.config.ps1`, because it holds your passphrase.
 
 ## License
