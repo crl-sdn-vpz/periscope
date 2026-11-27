@@ -53,6 +53,22 @@ README.md                  user-facing install/test guide for both machines
 justfile                   lint | e2e | check
 ```
 
+Go binary (v0.3, ADR docs/adr/0001; replaces the scripts once released and tested on Windows):
+```
+cmd/periscope/          CLI: every command returns (string, error) so `menu` reuses them
+internal/config         JSON config (os.UserConfigDir()/periscope/config.json or $PERISCOPE_CONFIG), Validate*, Get/Set
+internal/ffargs         sender ffmpeg args; golden test pins parity with windows/sender.ps1 Build-Args
+internal/sender|viewer  role daemons: supervise ffmpeg/mpv, serve the control socket (send.sock / view.sock)
+internal/control        one JSON request/response per connection over AF_UNIX (also on Windows 10+)
+internal/supervise      restart with backoff; proc ties children to us (Pdeathsig / kill-on-close job object)
+internal/mpv | x11      mpv args + JSON IPC client (request_id) | wmctrl/xprop/xrandr/xdotool wrappers
+internal/menu           raw-terminal menu (x/term), pure key decoder
+install/install.sh|ps1  release-based installers (SHA256SUMS checked; PERISCOPE_DOWNLOAD_BASE for tests)
+tests/e2e-go-xvfb.sh    Go e2e: real `periscope send` (capture=test) → `periscope view`
+```
+Dependencies: golang.org/x/sys and golang.org/x/term only (approved in ADR 0001). Ask before adding more.
+Keep `CGO_ENABLED=0` cross-compiles working (`just dist`).
+
 ## Runtime state (Linux)
 `$XDG_RUNTIME_DIR/periscope/`: `mpv.sock`, `viewer.pid`, `watcher.pid`, `mode`, `opacity`,
 `peek` (stores the pre-peek opacity), `stop` (flag), `input.conf`, `mpv.log`.
@@ -65,14 +81,18 @@ justfile                   lint | e2e | check
   ffmpeg is launched with `Start-Process -ArgumentList <single string>`, so quote filter/URL args manually.
 - mpv default key bindings are disabled (`--no-input-default-bindings`). Control is through IPC only.
 - Window identity: mpv runs with a fixed `--title=PERISCOPE-D1` and is located with `xdotool search --name`.
+- Tests that pgrep/pkill must anchor on the binary (`'^mpv srt://'`, `'^[^ ]*ffmpeg .*service_name=periscope'`):
+  a bare `pkill -f PERISCOPE` also matches any shell whose command line quotes the pattern, including the
+  one running the test.
 - Keep the sender free of UI: no windows, tray icons or console output. Logs go to `%LOCALAPPDATA%\periscope`.
 
 ## Testing
 ```bash
-just check                 # = just lint (shellcheck -S warning) + just e2e (tests/e2e-xvfb.sh)
+just check                 # = lint (gofmt, go vet x3 OS, shellcheck) + go test + e2e (both suites)
                            # e2e deps: xvfb openbox mpv ffmpeg socat wmctrl xdotool x11-utils x11-apps xfonts-base
 ```
-Windows scripts have no automated test. Verify them by hand with the foreground run
+CI covers Windows: PS 5.1 parse check of every .ps1, install/install.ps1 end to end, and the Go sender
+streaming into an ffmpeg SRT listener. The v0.2 PowerShell sender itself still has no automated run. Verify them by hand with the foreground run
 (`powershell -File sender.ps1`) and `status.ps1`. To sanity-check the generated ffmpeg args on
 Linux, replace `ddagrab` with `testsrc2` and run the same filter/encoder chain.
 
@@ -89,4 +109,3 @@ Linux, replace `ddagrab` with `testsrc2` and run the same filter/encoder chain.
 - Capture-card input source (`/dev/video0` via v4l2) as an alternative to SRT.
 - Multiple sources on separate ports, `d1 view --source <name>`.
 - Wayland opacity/placement (see Platform notes).
-- Windows-side CI: a PowerShell parse check (`[Parser]::ParseFile`) plus Pester tests for `Build-Args`.
