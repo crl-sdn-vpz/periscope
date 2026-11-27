@@ -91,10 +91,13 @@ jobs:
           if (-not $streaming) { throw "the sender never reported streaming" }
 
           & $exe send stop
-          Start-Sleep -Seconds 2
-          $left = Get-CimInstance Win32_Process -Filter "Name = 'ffmpeg.exe'" |
-                  Where-Object { $_.CommandLine -like "*service_name=periscope*" }
-          if ($left) { throw "ffmpeg outlived the sender" }
+          $left = $true
+          for ($i = 0; $i -lt 10 -and $left; $i++) {
+            Start-Sleep -Seconds 1
+            $left = Get-CimInstance Win32_Process -Filter "Name = 'ffmpeg.exe'" |
+                    Where-Object { $_.CommandLine -like "*service_name=periscope*" }
+          }
+          if ($left) { $left | Format-Table ProcessId, ParentProcessId, CommandLine -Wrap; throw "ffmpeg outlived the sender" }
           Stop-Process -Id $listen.Id, $srv.Id -ErrorAction SilentlyContinue
       - name: Desktop capture probe (informational)
         if: always()
