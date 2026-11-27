@@ -274,3 +274,7 @@ Config: `periscope.config.ps1`
   just check      # shellcheck + tests/e2e-xvfb.sh (or run them one by one: just lint, just e2e)
   ```
 - Don't commit a filled-in `windows/periscope.config.ps1`, because it holds your passphrase.
+
+## License
+
+[MIT](LICENSE)
