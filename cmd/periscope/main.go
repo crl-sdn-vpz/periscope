@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/crl-sdn-vpz/periscope/internal/proc"
 	"github.com/crl-sdn-vpz/periscope/internal/sender"
 	"github.com/crl-sdn-vpz/periscope/internal/viewer"
+	"github.com/crl-sdn-vpz/periscope/internal/x11"
 )
 
 // version is set at build time: -ldflags "-X main.version=v0.3.0".
@@ -38,12 +40,14 @@ const usage = `periscope %s - stream a screen between devices
 On the device being shown:
   periscope send                  run the sender (foreground; Ctrl+C stops it)
   periscope send --detach         run it in the background
-  periscope send status|stop
+  periscope send start|stop|toggle|status
 
 On the device watching:
   periscope view [mode]           start the viewer in the background (modes: overlay, split-left, split-right, full)
   periscope menu                  interactive control: arrows + Enter, or one key per action
   periscope mode <mode|cycle>     change layout
+  periscope screens               list monitors (the feed's is marked)
+  periscope screen [n|next] [--default]   move the feed to monitor n; --default also saves it
   periscope peek                  toggle: fade your windows so the stream is readable
   periscope opacity [v|cycle|reset]
   periscope shot [--path|--no-clip]   full-res PNG of the stream -> clipboard (image by default)
@@ -51,7 +55,7 @@ On the device watching:
   periscope stop                  stop the viewer and restore window opacity
   periscope test                  start the viewer and play a local test pattern into it
   periscope pair                  print the one-line install command for the sending device
-  periscope bind-gnome            register GNOME hotkeys (Super+Shift+S/A/P/M/O)
+  periscope bind-gnome            register GNOME hotkeys (Super+Shift+S/A/P/M/O/N)
 
 Setup:
   periscope config init [--target-host H] [--port N] [--passphrase P]
@@ -87,6 +91,10 @@ func run(ctx context.Context, args []string) (string, error) {
 		return cmdView(ctx, rest)
 	case "mode", "peek", "opacity":
 		return callViewer(cmd, rest...)
+	case "screens":
+		return cmdScreens()
+	case "screen":
+		return cmdScreen(rest)
 	case "shot", "snap":
 		return cmdShot(rest)
 	case "status":
@@ -317,6 +325,61 @@ func spawn(dir, name, sockName string, args []string) error {
 	return fmt.Errorf("the %s did not come up within 15s (see %s)", name, startLog)
 }
 
+func cmdScreens() (string, error) {
+	ms, err := x11.Monitors()
+	if err != nil {
+		return "", fmt.Errorf("list monitors (needs X11 and xrandr): %w", err)
+	}
+	feed := -1
+	if out, err := callViewer("screen", "index"); err == nil {
+		feed, _ = strconv.Atoi(out)
+	}
+	var b strings.Builder
+	for _, m := range ms {
+		b.WriteString("  " + m.String())
+		if m.Index == feed {
+			b.WriteString("   <- feed")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("Move the feed: periscope screen <n|next>   (add --default to keep it there next time)")
+	return b.String(), nil
+}
+
+func cmdScreen(args []string) (string, error) {
+	target, save := "", false
+	for _, a := range args {
+		switch {
+		case a == "--default":
+			save = true
+		case target == "":
+			target = a
+		default:
+			return "", errors.New("usage: periscope screen [n|next] [--default]")
+		}
+	}
+	out, err := callViewer("screen", target)
+	running := err == nil
+	if err != nil && !(save && strings.Contains(err.Error(), "not running")) {
+		return "", err
+	}
+	if !save {
+		return out, nil
+	}
+	n := target
+	if running {
+		if n, err = callViewer("screen", "index"); err != nil {
+			return out, err
+		}
+	} else if _, err := strconv.Atoi(n); err != nil {
+		return "", errors.New("the viewer is not running: give a monitor number to save (periscope screens)")
+	}
+	if _, err := cmdConfig([]string{"set", "view.screen", n}); err != nil {
+		return out, err
+	}
+	return strings.TrimSpace(out + "\nmonitor " + n + " saved as the default"), nil
+}
+
 func cmdShot(args []string) (string, error) {
 	copyWhat := "image"
 	if len(args) > 0 {
@@ -383,8 +446,18 @@ func callSender(cmd string) (string, error) {
 }
 
 func cmdSend(ctx context.Context, args []string) (string, error) {
-	if len(args) > 0 && (args[0] == "status" || args[0] == "stop") {
-		return callSender(args[0])
+	if len(args) > 0 {
+		switch args[0] {
+		case "status", "stop":
+			return callSender(args[0])
+		case "start":
+			args = append([]string{"--detach"}, args[1:]...)
+		case "toggle": // one shortcut/hotkey for both directions
+			if _, err := callSender("status"); err == nil {
+				return callSender("stop")
+			}
+			args = append([]string{"--detach"}, args[1:]...)
+		}
 	}
 	fs := flag.NewFlagSet("send", flag.ContinueOnError)
 	detach := fs.Bool("detach", false, "run in the background")
@@ -481,6 +554,8 @@ func cmdMenu() error {
 		{Key: 'l', Label: "Split left", Run: act("mode", "split-left")},
 		{Key: 'r', Label: "Split right", Run: act("mode", "split-right")},
 		{Key: 'f', Label: "Full screen", Run: act("mode", "full")},
+		{Key: 'n', Label: "Feed to next monitor", Run: act("screen", "next")},
+		{Key: 'd', Label: "Use this monitor by default", Run: func() (string, error) { return cmdScreen([]string{"--default"}) }},
 		{Key: 'p', Label: "Peek (toggle)", Run: act("peek")},
 		{Key: 'c', Label: "Cycle opacity", Run: act("opacity", "cycle")},
 		{Key: '0', Label: "Reset opacity", Run: act("opacity", "reset")},
@@ -511,6 +586,7 @@ func cmdBindGnome() (string, error) {
 		{"periscope-peek", "periscope: peek (fade my windows)", "peek", "<Super><Shift>p"},
 		{"periscope-mode", "periscope: cycle layout", "mode cycle", "<Super><Shift>m"},
 		{"periscope-opacity", "periscope: cycle overlay opacity", "opacity cycle", "<Super><Shift>o"},
+		{"periscope-screen", "periscope: feed to next monitor", "screen next", "<Super><Shift>n"},
 	}
 	cur, err := exec.Command("gsettings", "get", schema, "custom-keybindings").Output()
 	if err != nil {

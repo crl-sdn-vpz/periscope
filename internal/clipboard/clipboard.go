@@ -21,14 +21,24 @@ func tool(mime string) (*exec.Cmd, error) {
 	return nil, errors.New("no clipboard tool (install xclip or wl-clipboard)")
 }
 
+// copyFrom runs the clipboard tool with r as input. xclip and wl-copy fork a background process
+// that keeps serving the clipboard and inherits our stdout/stderr: with pipes attached, Wait would
+// block until another app takes the clipboard. So stdout is discarded and stderr goes to a file.
 func copyFrom(r io.Reader, mime string) error {
 	cmd, err := tool(mime)
 	if err != nil {
 		return err
 	}
-	cmd.Stdin = r
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s: %w %s", cmd.Path, err, strings.TrimSpace(string(out)))
+	errFile, err := os.CreateTemp("", "periscope-clip-*.log")
+	if err != nil {
+		return fmt.Errorf("clipboard: %w", err)
+	}
+	defer os.Remove(errFile.Name())
+	defer errFile.Close()
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = r, nil, errFile
+	if err := cmd.Run(); err != nil {
+		msg, _ := os.ReadFile(errFile.Name())
+		return fmt.Errorf("%s: %w %s", cmd.Path, err, strings.TrimSpace(string(msg)))
 	}
 	return nil
 }

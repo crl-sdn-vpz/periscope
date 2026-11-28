@@ -3,20 +3,28 @@ package x11
 import "testing"
 
 func TestParseWmctrl(t *testing.T) {
-	out := "0x01e00003  0 host Terminal\n0x00a00002 -1 host Desktop\ngarbage\n"
+	out := "0x01e00003  0 10 20 300 200 host Terminal window\n0x00a00002 -1 0 0 2560 1440 host Desktop\ngarbage\n"
 	ws := parseWmctrl(out)
-	if len(ws) != 2 || ws[0] != (Window{0x01e00003, 0}) || ws[1] != (Window{0x00a00002, -1}) {
+	want := []Window{{0x01e00003, 0, Rect{10, 20, 300, 200}}, {0x00a00002, -1, Rect{0, 0, 2560, 1440}}}
+	if len(ws) != 2 || ws[0] != want[0] || ws[1] != want[1] {
 		t.Fatalf("got %+v", ws)
 	}
 }
 
-func TestParseMonitor(t *testing.T) {
+func TestParseMonitors(t *testing.T) {
 	out := "Monitors: 2\n 0: +*DP-1 2560/597x1440/336+0+0  DP-1\n 1: +HDMI-1 1920/527x1080/296+2560+180  HDMI-1\n"
-	if r, ok := parseMonitor(out, 1); !ok || r != (Rect{2560, 180, 1920, 1080}) {
-		t.Fatalf("monitor 1 = %+v %v", r, ok)
+	ms := parseMonitors(out)
+	want := []Monitor{{0, "DP-1", true, Rect{0, 0, 2560, 1440}}, {1, "HDMI-1", false, Rect{2560, 180, 1920, 1080}}}
+	if len(ms) != 2 || ms[0] != want[0] || ms[1] != want[1] {
+		t.Fatalf("got %+v", ms)
 	}
-	if _, ok := parseMonitor(out, 2); ok {
-		t.Fatal("monitor 2 should not exist")
+	// Virtual monitors made with `xrandr --setmonitor` have no '+' and no output name suffix.
+	ms = parseMonitors("Monitors: 1\n 0: left 1280/0x1440/0+0+0  none\n")
+	if len(ms) != 1 || ms[0].Name != "left" || ms[0].Rect != (Rect{0, 0, 1280, 1440}) {
+		t.Fatalf("virtual monitor: %+v", ms)
+	}
+	if !(Rect{2560, 180, 1920, 1080}).Contains(3000, 500) || (Rect{0, 0, 10, 10}).Contains(10, 5) {
+		t.Fatal("Contains")
 	}
 }
 

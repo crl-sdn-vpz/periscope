@@ -76,11 +76,22 @@ func Run(title string, items []Item, header func() string, refresh time.Duration
 		}
 	}()
 
+	type result struct {
+		out string
+		err error
+	}
 	sel, msg := 0, ""
+	busy := ""                   // label of the action in progress
+	done := make(chan result, 1) // actions run in the background so quit keys always work
 	tick := time.NewTicker(refresh)
 	defer tick.Stop()
 	for {
-		draw(title, items, sel, header(), msg)
+		status := header()
+		if busy != "" {
+			draw(title, items, sel, status, busy+" ...")
+		} else {
+			draw(title, items, sel, status, msg)
+		}
 		var b []byte
 		select {
 		case k, ok := <-keys:
@@ -88,10 +99,22 @@ func Run(title string, items []Item, header func() string, refresh time.Duration
 				return nil
 			}
 			b = k
+		case r := <-done:
+			busy, msg = "", r.out
+			if r.err != nil {
+				msg = strings.TrimSpace(r.out + "\nerror: " + r.err.Error())
+			}
+			continue
 		case <-tick.C:
 			continue
 		}
 		kind, ch := decode(b)
+		if kind == keyQuit {
+			return nil
+		}
+		if busy != "" {
+			continue // one action at a time
+		}
 		pick := -1
 		switch kind {
 		case keyUp:
@@ -100,8 +123,6 @@ func Run(title string, items []Item, header func() string, refresh time.Duration
 			sel = (sel + 1) % len(items)
 		case keyEnter:
 			pick = sel
-		case keyQuit:
-			return nil
 		case keyChar:
 			for i, it := range items {
 				if it.Key == ch {
@@ -115,11 +136,11 @@ func Run(title string, items []Item, header func() string, refresh time.Duration
 		if items[pick].Run == nil {
 			return nil
 		}
-		out, err := items[pick].Run()
-		msg = out
-		if err != nil {
-			msg = strings.TrimSpace(out + "\nerror: " + err.Error())
-		}
+		busy = items[pick].Label
+		go func(run func() (string, error)) {
+			out, err := run()
+			done <- result{out, err}
+		}(items[pick].Run)
 	}
 }
 

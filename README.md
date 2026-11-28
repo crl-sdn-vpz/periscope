@@ -287,6 +287,8 @@ periscope menu      # arrows + Enter, or one key per action
 | v0.2 scripts | periscope |
 |---|---|
 | `d1 view / mode / peek / opacity / shot / status / stop / test / pair / menu / bind-gnome` | same subcommands: `periscope view`, `periscope mode cycle`, ... |
+| (no equivalent) | `periscope screens`, `periscope screen <n\|next> [--default]`: pick the feed's monitor |
+| `windows\start.cmd`, `stop.ps1` | Start menu > Periscope, or **Ctrl+Alt+Shift+P** (`periscope send toggle`) |
 | `windows\sender.ps1`, `start.cmd`, `stop.ps1`, `status.ps1` | `periscope send`, `send --detach`, `send stop`, `send status` |
 | `~/.config/periscope/config` + `periscope.config.ps1` | one JSON file per device: `periscope config init / get / set / show` |
 
@@ -319,6 +321,9 @@ Leave that terminal open.
 line. Expected output: `Downloading`, `Installed`, `Installing ffmpeg` (first time only),
 `Config`, `Registering autostart`, `Starting the sender`, then `sender : connecting ...` or
 `sender : streaming ...`, and `Done.` Within about 10 s the Linux screen shows the Windows desktop.
+You can close PowerShell now: the sender runs hidden (a logon task) and never needs a terminal.
+Day to day, use **Ctrl+Alt+Shift+P** to start/stop it, or the **Start menu > Periscope** shortcuts
+(Start or stop, Start, Stop, Status).
 
 **3. Linux:** press **Ctrl+C** in the `just test-pair` terminal. That only stops the download
 server; the viewer keeps running.
@@ -329,13 +334,20 @@ server; the viewer keeps running.
 - [ ] Latency: open a clock with seconds on Windows and compare. 100 to 250 ms is normal on a LAN.
 - [ ] `periscope shot`, then `file ~/Pictures/periscope/latest.png` → a PNG at the Windows resolution;
       Ctrl+V pastes the image into an app.
-- [ ] `periscope menu`: try `o` `l` `r` `f` (layouts), `p` (peek), `c` / `0` (opacity), `s` (shot), `q`.
-- [ ] Overlay: your Linux windows are translucent over the feed, and a newly opened window is too.
+- [ ] `periscope menu`: try `o` `l` `r` `f` (layouts), `n` (next monitor), `p` (peek), `c` / `0`
+      (opacity), `s` (shot), `q`. Each action answers below the menu; `q` / Esc / Ctrl+C always quit.
+- [ ] Monitors: `periscope screens` lists them and marks the feed's; `periscope screen next` moves the
+      feed; `periscope screen 1 --default` keeps it on monitor 1 from now on.
+- [ ] Overlay: your Linux windows **on the feed's monitor** turn translucent (windows on other monitors
+      stay solid), also newly opened ones and ones you drag onto it. `p` (peek) makes them almost
+      invisible and back; the reply says how many windows changed.
 - [ ] Optional: `periscope bind-gnome`, then Super+Shift+S / P / M / O.
 - [ ] Windows `periscope.exe send status` → `sender : streaming to <linux-ip>:9000 for ...`
 - [ ] Windows shows no window, console or tray icon; Task Manager lists `periscope.exe` and `ffmpeg.exe`.
 - [ ] Windows `periscope.exe send stop` → Linux status says `waiting for the sender`, and `ffmpeg.exe`
       is gone from Task Manager.
+- [ ] Windows **Ctrl+Alt+Shift+P** stops the sender; pressing it again starts it (or use Start menu >
+      Periscope). "Periscope - Status" shows the state.
 - [ ] Windows `Start-ScheduledTask -TaskName PeriscopeSender` → the stream is back within ~10 s.
 - [ ] Linux `periscope stop`, then `periscope view` → the stream comes back on its own.
 - [ ] Sign out of Windows and back in (autostart) → the stream comes back.
@@ -357,6 +369,7 @@ Get-Content "$p\sender.log" -Tail 30; Get-Content "$p\ffmpeg.log" -Tail 30
 | `sender.log` shows `ddagrab` / `No such filter` | Old ffmpeg: `winget upgrade Gyan.FFmpeg`, or `periscope.exe config set send.capture gdigrab`. |
 | Linux stays on `waiting for the sender` | UDP 9000 is blocked on Linux (`sudo ufw allow 9000/udp`), or the sender points at another IP (`periscope.exe config get send.target_host`). |
 | Overlay/split do nothing | You're on Wayland. Log into the Xorg session. |
+| Opacity/peek seem to do nothing | They only touch windows on the feed's monitor, and only in overlay mode; the reply says how many windows changed. Move a window onto the feed, or the feed where you work: `periscope screen next`. Terminals listed in `view.overlay_exclude` (kitty, Alacritty, wezterm) keep their own transparency. |
 
 **Go back to v0.2:** Windows `periscope.exe send stop`, then
 `Unregister-ScheduledTask -TaskName PeriscopeSender -Confirm:$false`; Linux `periscope stop`. Then

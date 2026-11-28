@@ -3,7 +3,7 @@
 # `periscope send` (capture=test, the real argument builder) streams over encrypted SRT.
 #
 # Requires: go, xvfb-run, openbox, mpv (with srt), ffmpeg (with libsrt), wmctrl, xdotool, xprop,
-#           xmessage, xfonts-base, ffprobe
+#           xmessage, xfonts-base, ffprobe, xclip
 # Usage:    tests/e2e-go-xvfb.sh            (wraps itself in xvfb-run)
 set -uo pipefail
 
@@ -18,6 +18,20 @@ P="$TMP/periscope"
 (cd "$ROOT" && go build -o "$P" ./cmd/periscope) || { echo "build failed"; exit 1; }
 export HOME="$TMP/home" XDG_RUNTIME_DIR="$TMP/run" XDG_CONFIG_HOME="$TMP/home/.config" XDG_SESSION_TYPE=x11
 mkdir -p "$HOME" "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+
+# Xvfb has one monitor and ignores `xrandr --setmonitor`, so a shim reports two side by side
+# (left = 0, primary; right = 1). Everything else goes to the real xrandr.
+mkdir -p "$TMP/shim"
+cat > "$TMP/shim/xrandr" <<'SHIM'
+#!/usr/bin/env bash
+if [[ "${1:-}" == --listactivemonitors ]]; then
+    printf 'Monitors: 2\n 0: +*left 1280/339x1440/381+0+0  left\n 1: +right 1280/339x1440/381+1280+0  right\n'
+    exit 0
+fi
+exec /usr/bin/xrandr "$@"
+SHIM
+chmod +x "$TMP/shim/xrandr"
+export PATH="$TMP/shim:$PATH"
 STATE="$XDG_RUNTIME_DIR/periscope"
 VIEW_CFG="$TMP/view.json" SEND_CFG="$TMP/send.json" BAD_CFG="$TMP/bad.json"
 PASS=e2etestpassphrase42
@@ -70,30 +84,60 @@ wait_for 15 receiving 2560x1440 && ok "receiving 2560x1440" || fail "not receivi
 wait_for 10 bash -c "PERISCOPE_CONFIG='$SEND_CFG' '$P' send status | grep -q streaming" && ok "sender reports streaming" || fail "sender status: $(send send status)"
 shot=$(view shot --no-clip 2>/dev/null)
 check "screenshot written"              test -s "$shot"
+check "shot to clipboard returns"       timeout 5 env PERISCOPE_CONFIG="$VIEW_CFG" "$P" shot
+check "clipboard holds the PNG"         bash -c "xclip -selection clipboard -t TARGETS -o | grep -q image/png"
+check "shot --path returns"             timeout 5 env PERISCOPE_CONFIG="$VIEW_CFG" "$P" shot --path
 [[ "$(png_size "$shot")" == "2560x1440" ]] && ok "screenshot is native res" || fail "screenshot res $(png_size "$shot")"
 check "latest.png symlink"              test -L "$TMP/shots/latest.png"
 
-echo "== overlay / opacity"
+echo "== overlay / opacity (feed on monitor 0 = left half)"
 xmessage -geometry 300x100+50+50 app1 & sleep 1
+xmessage -geometry 300x100+1500+100 right1 & sleep 1
 view mode overlay >/dev/null
 app=$(xdotool search --name '^xmessage$' | head -n1)
+right=$(xdotool search --name '^xmessage$' | grep -v "^$app\$" | head -n1)
 d1w=$(xdotool search --name '^PERISCOPE-VIEW$' | head -n1)
 [[ "$(opacity_of "$app")" == "3435973836" ]] && ok "overlay window at 0.80" || fail "overlay opacity $(opacity_of "$app")"
+[[ -z "$(opacity_of "$right")" ]] && ok "window on the other monitor not faded" || fail "right window faded $(opacity_of "$right")"
 check "viewer window kept below"        bash -c "xprop -id $d1w _NET_WM_STATE | grep -q BELOW"
-[[ "$(view peek)" == "peek on: opacity 0.12" ]] && ok "peek fades" || fail "peek"
-[[ "$(view peek)" == "peek off: opacity 0.80" ]] && ok "peek restores" || fail "peek restore"
-[[ "$(view opacity cycle)" == "opacity: 0.90" ]] && ok "opacity cycle" || fail "opacity cycle"
+[[ "$(view peek)" == "peek on: opacity 0.12, 1 window(s) at 0.12" ]] && ok "peek fades and counts" || fail "peek: $(view opacity)"
+[[ "$(opacity_of "$app")" == "$(( 0xffffffff * 12 / 100 ))" ]] && ok "peek opacity applied" || fail "peek opacity $(opacity_of "$app")"
+[[ "$(view peek)" == "peek off: opacity 0.80, 1 window(s) at 0.80" ]] && ok "peek restores" || fail "peek restore"
+[[ "$(view opacity cycle)" == opacity:\ 0.90* ]] && ok "opacity cycle" || fail "opacity cycle"
 view opacity 0.8 >/dev/null
 xmessage -geometry 300x100+400+400 app2 & sleep 1.5
-new=$(xdotool search --name '^xmessage$' | grep -v "^$app\$" | head -n1)
+new=$(xdotool search --name '^xmessage$' | grep -v -e "^$app\$" -e "^$right\$" | head -n1)
 [[ -n "$(opacity_of "$new")" ]] && ok "new window auto-faded" || fail "new window not faded"
+xdotool windowmove "$new" 1600 600; sleep 2
+[[ -z "$(opacity_of "$new")" ]] && ok "window dragged off the feed un-fades" || fail "moved window still $(opacity_of "$new")"
+xdotool windowmove "$new" 400 400; sleep 2
+[[ -n "$(opacity_of "$new")" ]] && ok "window dragged back fades" || fail "moved-back window not faded"
+
+echo "== monitors"
+check "screens lists both"              bash -c "PERISCOPE_CONFIG='$VIEW_CFG' '$P' screens | grep -q '1: right'"
+check "screens marks the feed"          bash -c "PERISCOPE_CONFIG='$VIEW_CFG' '$P' screens | grep -q 'left.*<- feed'"
+check "screen 1 moves the feed"         bash -c "PERISCOPE_CONFIG='$VIEW_CFG' '$P' screen 1 | grep -q 'on monitor 1 (right)'"
+[[ "$(opacity_of "$right")" == "3435973836" && -z "$(opacity_of "$app")" ]] && ok "fading follows the feed" \
+    || fail "after screen 1: right=$(opacity_of "$right") left=$(opacity_of "$app")"
+check "status shows the monitor"        bash -c "PERISCOPE_CONFIG='$VIEW_CFG' '$P' status | grep -q 'screen : 1: right'"
+check "screen next wraps to 0"          bash -c "PERISCOPE_CONFIG='$VIEW_CFG' '$P' screen next | grep -q 'on monitor 0 (left)'"
+check "bad monitor refused"             bash -c "! PERISCOPE_CONFIG='$VIEW_CFG' '$P' screen 5"
+view screen 1 --default >/dev/null
+[[ "$(view config get view.screen)" == 1 ]] && ok "screen --default saves it" || fail "view.screen = $(view config get view.screen)"
+view screen 0 --default >/dev/null
 
 echo "== split"
 view mode split-left >/dev/null; sleep 0.5
-w=$(xdotool getwindowgeometry "$d1w" | awk '/Geometry/{split($2,a,"x"); print a[1]}')
-(( w >= 1500 && w <= 1560 )) && ok "split width ~60% ($w)" || fail "split width $w"
+geo() { xdotool getwindowgeometry "$d1w" | awk '/Position/{split($2,p,","); x=p[1]} /Geometry/{split($2,a,"x"); w=a[1]} END{print x, w}'; }
+read -r x w < <(geo)
+(( x == 0 && w >= 740 && w <= 790 )) && ok "split-left: 60% of monitor 0 ($x,$w)" || fail "split-left geometry $x,$w"
 [[ -z "$(opacity_of "$app")" ]] && ok "split restores opacity" || fail "split opacity $(opacity_of "$app")"
-check "mode cycle"                      bash -c "PERISCOPE_CONFIG='$VIEW_CFG' '$P' mode cycle | grep -q 'mode: full'"
+check "opacity refused outside overlay" bash -c "! PERISCOPE_CONFIG='$VIEW_CFG' '$P' peek"
+view screen 1 >/dev/null; view mode split-right >/dev/null; sleep 0.5
+read -r x w < <(geo)
+(( x >= 1770 && x <= 1810 && w >= 740 && w <= 790 )) && ok "split-right on monitor 1 ($x,$w)" || fail "split-right geometry $x,$w"
+view screen 0 >/dev/null
+check "mode cycle"                      bash -c "PERISCOPE_CONFIG='$VIEW_CFG' '$P' mode cycle | grep -q 'mode: overlay'"
 view mode overlay >/dev/null
 
 echo "== reconnect at a new resolution (max_width scaling)"
@@ -105,6 +149,10 @@ wait_for 15 receiving 1920x1080 && ok "reconnected 1920x1080" || fail "not 1920x
 shot=$(view shot --no-clip 2>/dev/null)
 [[ "$(png_size "$shot")" == "1920x1080" ]] && ok "second screenshot res" || fail "second screenshot $(png_size "$shot")"
 send send stop >/dev/null; wait_for 5 bash -c '! pgrep -f "$FF_RE"'
+
+echo "== send toggle"
+check "toggle starts the sender"        bash -c "PERISCOPE_CONFIG='$SEND_CFG' '$P' send toggle && PERISCOPE_CONFIG='$SEND_CFG' '$P' send status"
+check "toggle stops it"                 bash -c "PERISCOPE_CONFIG='$SEND_CFG' '$P' send toggle; sleep 1; ! PERISCOPE_CONFIG='$SEND_CFG' '$P' send status"
 
 echo "== mpv crash is recovered"
 pkill -f "$MPV_RE"

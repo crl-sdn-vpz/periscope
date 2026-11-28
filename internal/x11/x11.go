@@ -30,10 +30,11 @@ func Available() error {
 	return nil
 }
 
-// Window is a managed top-level window.
+// Window is a managed top-level window and its frame geometry.
 type Window struct {
 	ID      uint32
 	Desktop int // -1 = sticky (desktop, panels, docks)
+	Rect    Rect
 }
 
 func run(name string, args ...string) (string, error) {
@@ -46,28 +47,37 @@ func run(name string, args ...string) (string, error) {
 
 func hex(id uint32) string { return fmt.Sprintf("0x%08x", id) }
 
-// Windows lists managed windows (wmctrl -l).
+// Windows lists managed windows with their geometry (wmctrl -lG).
 func Windows() ([]Window, error) {
-	out, err := run("wmctrl", "-l")
+	out, err := run("wmctrl", "-lG")
 	if err != nil {
 		return nil, err
 	}
 	return parseWmctrl(out), nil
 }
 
+// parseWmctrl reads `wmctrl -lG` lines: id desktop x y w h host title...
 func parseWmctrl(out string) []Window {
 	var ws []Window
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Fields(line)
-		if len(f) < 2 {
+		if len(f) < 6 {
 			continue
 		}
-		id, err1 := strconv.ParseUint(strings.TrimPrefix(f[0], "0x"), 16, 32)
-		desk, err2 := strconv.Atoi(f[1])
-		if err1 != nil || err2 != nil {
+		id, err := strconv.ParseUint(strings.TrimPrefix(f[0], "0x"), 16, 32)
+		if err != nil {
 			continue
 		}
-		ws = append(ws, Window{ID: uint32(id), Desktop: desk})
+		var n [5]int
+		ok := true
+		for i := range n {
+			if n[i], err = strconv.Atoi(f[i+1]); err != nil {
+				ok = false
+			}
+		}
+		if ok {
+			ws = append(ws, Window{ID: uint32(id), Desktop: n[0], Rect: Rect{X: n[1], Y: n[2], W: n[3], H: n[4]}})
+		}
 	}
 	return ws
 }
@@ -133,42 +143,81 @@ func FindByName(pattern string) (uint32, error) {
 	return uint32(id), nil
 }
 
-// Rect is a monitor's geometry.
+// Rect is a screen-space rectangle.
 type Rect struct{ X, Y, W, H int }
 
-// Monitor returns the geometry of monitor n (xrandr), or the whole display if xrandr can't tell.
-func Monitor(n int) (Rect, error) {
+// Contains reports whether the point (x, y) lies inside r.
+func (r Rect) Contains(x, y int) bool { return x >= r.X && x < r.X+r.W && y >= r.Y && y < r.Y+r.H }
+
+// Center returns r's center point.
+func (r Rect) Center() (int, int) { return r.X + r.W/2, r.Y + r.H/2 }
+
+// Monitor is an active output, numbered as `xrandr --listactivemonitors` numbers it.
+type Monitor struct {
+	Index   int
+	Name    string
+	Primary bool
+	Rect    Rect
+}
+
+func (m Monitor) String() string {
+	s := fmt.Sprintf("%d: %s %dx%d+%d+%d", m.Index, m.Name, m.Rect.W, m.Rect.H, m.Rect.X, m.Rect.Y)
+	if m.Primary {
+		s += " (primary)"
+	}
+	return s
+}
+
+// Monitors lists active monitors (xrandr), or the whole display as monitor 0 if xrandr can't tell.
+func Monitors() ([]Monitor, error) {
 	if out, err := run("xrandr", "--listactivemonitors"); err == nil {
-		if r, ok := parseMonitor(out, n); ok {
-			return r, nil
+		if ms := parseMonitors(out); len(ms) > 0 {
+			return ms, nil
 		}
 	}
 	out, err := run("xdotool", "getdisplaygeometry")
 	if err != nil {
-		return Rect{}, err
+		return nil, err
 	}
 	var r Rect
 	if _, err := fmt.Sscanf(out, "%d %d", &r.W, &r.H); err != nil {
-		return Rect{}, fmt.Errorf("parse display geometry %q: %w", out, err)
+		return nil, fmt.Errorf("parse display geometry %q: %w", out, err)
 	}
-	return r, nil
+	return []Monitor{{Index: 0, Name: "display", Primary: true, Rect: r}}, nil
 }
 
-var monitorRe = regexp.MustCompile(`^\s*(\d+):\s+\S+\s+(\d+)/\d+x(\d+)/\d+\+(\d+)\+(\d+)`)
+// MonitorAt returns monitor n.
+func MonitorAt(n int) (Monitor, error) {
+	ms, err := Monitors()
+	if err != nil {
+		return Monitor{}, err
+	}
+	for _, m := range ms {
+		if m.Index == n {
+			return m, nil
+		}
+	}
+	return Monitor{}, fmt.Errorf("no monitor %d (there are %d: periscope screens)", n, len(ms))
+}
 
-func parseMonitor(out string, n int) (Rect, bool) {
+// e.g. " 1: +*HDMI-1 1920/527x1080/296+2560+180  HDMI-1"; '*' marks the primary monitor.
+var monitorRe = regexp.MustCompile(`^\s*(\d+):\s+\+?(\*?)(\S+)\s+(\d+)/\d+x(\d+)/\d+\+(\d+)\+(\d+)`)
+
+func parseMonitors(out string) []Monitor {
+	var ms []Monitor
 	for _, line := range strings.Split(out, "\n") {
 		m := monitorRe.FindStringSubmatch(line)
-		if m == nil || m[1] != strconv.Itoa(n) {
+		if m == nil {
 			continue
 		}
-		w, _ := strconv.Atoi(m[2])
-		h, _ := strconv.Atoi(m[3])
-		x, _ := strconv.Atoi(m[4])
-		y, _ := strconv.Atoi(m[5])
-		return Rect{X: x, Y: y, W: w, H: h}, true
+		var n [5]int
+		for i, s := range []string{m[1], m[4], m[5], m[6], m[7]} {
+			n[i], _ = strconv.Atoi(s)
+		}
+		ms = append(ms, Monitor{Index: n[0], Name: m[3], Primary: m[2] == "*",
+			Rect: Rect{X: n[3], Y: n[4], W: n[1], H: n[2]}})
 	}
-	return Rect{}, false
+	return ms
 }
 
 // WatchClientList calls fn whenever the window list changes, until ctx is done.

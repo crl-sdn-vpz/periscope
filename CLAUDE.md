@@ -59,11 +59,15 @@ cmd/periscope/          CLI: every command returns (string, error) so `menu` reu
 internal/config         JSON config (os.UserConfigDir()/periscope/config.json or $PERISCOPE_CONFIG), Validate*, Get/Set
 internal/ffargs         sender ffmpeg args; golden test pins parity with windows/sender.ps1 Build-Args
 internal/sender|viewer  role daemons: supervise ffmpeg/mpv, serve the control socket (send.sock / view.sock)
+                        viewer/layout.go: modes, feed monitor (`screen`), opacity only for windows centered
+                        on the feed's monitor, reconciled every 1 s and on _NET_CLIENT_LIST changes
 internal/control        one JSON request/response per connection over AF_UNIX (also on Windows 10+)
 internal/supervise      restart with backoff; proc ties children to us (Pdeathsig / kill-on-close job object)
 internal/mpv | x11      mpv args + JSON IPC client (request_id) | wmctrl/xprop/xrandr/xdotool wrappers
-internal/menu           raw-terminal menu (x/term), pure key decoder
-install/install.sh|ps1  release-based installers (SHA256SUMS checked; PERISCOPE_DOWNLOAD_BASE for tests)
+internal/menu           raw-terminal menu (x/term), pure key decoder; actions run in a goroutine so quit keys work
+internal/clipboard      xclip/wl-copy with no pipes attached: they fork a server that would block Wait
+install/install.sh|ps1  release-based installers (SHA256SUMS checked; PERISCOPE_DOWNLOAD_BASE for tests);
+                        Windows also makes Start Menu shortcuts (conhost --headless, Ctrl+Alt+Shift+P toggle)
 tests/e2e-go-xvfb.sh    Go e2e: real `periscope send` (capture=test) → `periscope view`
 scripts/test-pair.sh    `just test-pair`: hardware test of a checkout (serves dist/ on the LAN, prints the Windows line)
 ```

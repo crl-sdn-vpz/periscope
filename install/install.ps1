@@ -21,6 +21,7 @@ $asset = "periscope_windows_amd64.exe"
 $bin   = Join-Path $env:LOCALAPPDATA "periscope\bin"
 $exe   = Join-Path $bin "periscope.exe"
 $task  = "PeriscopeSender"
+$ps    = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
 
 function Write-Step([string]$msg) { Write-Host "==> $msg" }
 
@@ -102,10 +103,41 @@ $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interac
 Register-ScheduledTask -TaskName $task -Action $action -Trigger $trigger -Settings $settings `
     -Principal $principal -Force | Out-Null
 
+# --- 6. Start Menu shortcuts + PATH ---------------------------------------------
+# The shortcuts run periscope through conhost --headless: no window, no taskbar entry, no PowerShell.
+Write-Step "Creating Start Menu shortcuts (folder Periscope; Ctrl+Alt+Shift+P starts/stops the sender)"
+$menuDir = Join-Path ([Environment]::GetFolderPath("Programs")) "Periscope"
+New-Item -ItemType Directory -Force -Path $menuDir | Out-Null
+$conhost = Join-Path $env:SystemRoot "System32\conhost.exe"
+$wsh = New-Object -ComObject WScript.Shell
+$shortcuts = @(
+    @{ Name = "Periscope - Start or stop sender"; Target = $conhost; Args = "--headless `"$exe`" send toggle"; Key = "Ctrl+Alt+Shift+P" },
+    @{ Name = "Periscope - Start sender"; Target = $conhost; Args = "--headless `"$exe`" send start"; Key = "" },
+    @{ Name = "Periscope - Stop sender"; Target = $conhost; Args = "--headless `"$exe`" send stop"; Key = "" },
+    @{ Name = "Periscope - Status"; Target = $ps; Args = "-NoProfile -NoExit -Command `"& '$exe' send status`""; Key = "" }
+)
+foreach ($sc in $shortcuts) {
+    $lnk = $wsh.CreateShortcut((Join-Path $menuDir ($sc.Name + ".lnk")))
+    $lnk.TargetPath = $sc.Target
+    $lnk.Arguments = $sc.Args
+    $lnk.WorkingDirectory = $bin
+    $lnk.IconLocation = "$exe,0"
+    if ($sc.Key) { $lnk.Hotkey = $sc.Key }
+    $lnk.Save()
+}
+
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (-not $userPath) { $userPath = "" }
+if (($userPath -split ";") -notcontains $bin) {
+    [Environment]::SetEnvironmentVariable("Path", (($userPath.TrimEnd(";") + ";" + $bin).TrimStart(";")), "User")
+    Write-Step "Added $bin to your PATH (takes effect in new terminals)"
+}
+
 Write-Step "Starting the sender"
 Start-ScheduledTask -TaskName $task
 Start-Sleep -Seconds 5
 & $exe send status
 Write-Host ""
-Write-Host "Done. Status: periscope send status   Stop: periscope send stop   Logs: $env:LOCALAPPDATA\periscope"
-Write-Host "Add $bin to your PATH to type 'periscope' anywhere. Remove autostart: Unregister-ScheduledTask -TaskName $task"
+Write-Host "Done. You can close this window: the sender runs hidden and starts again at every logon."
+Write-Host "Start/stop: Ctrl+Alt+Shift+P, or Start menu > Periscope. Logs: $env:LOCALAPPDATA\periscope"
+Write-Host "Remove autostart: Unregister-ScheduledTask -TaskName $task -Confirm:`$false"
