@@ -106,6 +106,8 @@ func Run(ctx context.Context, c config.Config, stateDir string, logOut io.Writer
 		switch r.Cmd {
 		case "status":
 			return st.describe(c), nil
+		case "pid":
+			return fmt.Sprint(os.Getpid()), nil
 		case "stop":
 			go func() { time.Sleep(50 * time.Millisecond); cancel() }()
 			return "sender stopping", nil

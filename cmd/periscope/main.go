@@ -590,13 +590,15 @@ func callSender(cmd string) (string, error) {
 func cmdSend(ctx context.Context, args []string) (string, error) {
 	if len(args) > 0 {
 		switch args[0] {
-		case "status", "stop":
+		case "status":
 			return callSender(args[0])
+		case "stop":
+			return stopSender()
 		case "start":
 			args = append([]string{"--detach"}, args[1:]...)
 		case "toggle": // one shortcut/hotkey for both directions
 			if _, err := callSender("status"); err == nil {
-				return callSender("stop")
+				return stopSender()
 			}
 			args = append([]string{"--detach"}, args[1:]...)
 		}
@@ -624,6 +626,20 @@ func cmdSend(ctx context.Context, args []string) (string, error) {
 		return fmt.Sprintf("sender running in the background, streaming to %s:%d (periscope send status)", c.Send.TargetHost, c.Port), nil
 	}
 	return "", sender.Run(ctx, c, dir, os.Stderr)
+}
+
+// stopSender asks the sender to stop and returns once its process has exited, so its log files
+// are closed (Windows can't delete or replace open files: uninstall and updates rely on this).
+func stopSender() (string, error) {
+	pidOut, _ := callSender("pid")
+	out, err := callSender("stop")
+	if err != nil {
+		return out, err
+	}
+	if pid, perr := strconv.Atoi(strings.TrimSpace(pidOut)); perr == nil && !proc.WaitExit(pid, 10*time.Second) {
+		return out, errors.New("the sender did not exit within 10 s")
+	}
+	return "sender stopped", nil
 }
 
 func cmdTest(ctx context.Context) (string, error) {
