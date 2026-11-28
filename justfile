@@ -2,7 +2,8 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 version := `git describe --tags --always --dirty 2>/dev/null || echo dev`
 ldflags := "-s -w -X main.version=" + version
-targets := "linux/amd64 linux/arm64 windows/amd64 darwin/arm64 darwin/amd64"
+# Release targets: the platforms a role runs on today (macOS is vetted in lint, not shipped yet).
+targets := "linux/amd64 linux/arm64 windows/amd64"
 
 # List recipes
 default:
@@ -62,4 +63,6 @@ test-pair http_port="8000":
 # Publish dist/ as a GitHub release for an existing tag (external write: needs the owner's OK)
 release tag: dist
     git rev-parse -q --verify "refs/tags/{{tag}}" >/dev/null || { echo "tag {{tag}} doesn't exist"; exit 1; }
-    gh release create "{{tag}}" dist/* --verify-tag --title "{{tag}}" --generate-notes
+    awk -v v="[{{tag}}]" '$1 == "##" && $2 == v {on = 1; next} $1 == "##" && on {exit} on' CHANGELOG.md > dist/NOTES.md
+    test -s dist/NOTES.md || { echo "CHANGELOG.md has no section for {{tag}}"; exit 1; }
+    gh release create "{{tag}}" dist/periscope* dist/SHA256SUMS --verify-tag --title "periscope {{tag}}" --notes-file dist/NOTES.md

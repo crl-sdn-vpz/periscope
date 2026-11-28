@@ -4,7 +4,8 @@ Screen streaming from a Windows host to a Linux viewer. The viewer adds layout m
 overlay opacity control for local windows, and full-resolution frame capture to the clipboard.
 Status: v0.3 Go binary (`periscope`) hardware-tested Windows 11 → Ubuntu/GNOME (X11, two monitors);
 the v0.2 scripts below are legacy (docs/v0.2-scripts.md). README.md is for end users; contributor
-docs live in docs/ (hardware-test.md, adr/).
+docs live in docs/ (hardware-test.md, adr/). Releases: add a CHANGELOG.md section, tag vX.Y.Z on main,
+then `just release vX.Y.Z` (notes = that section).
 
 ## Architecture
 
@@ -106,8 +107,8 @@ Keep `CGO_ENABLED=0` cross-compiles working (`just dist`).
 - PowerShell: must stay compatible with **Windows PowerShell 5.1** (no `??`, ternary or `&&`).
   ffmpeg is launched with `Start-Process -ArgumentList <single string>`, so quote filter/URL args manually.
 - mpv default key bindings are disabled (`--no-input-default-bindings`). Control is through IPC only.
-- Window identity: mpv runs with a fixed `--title=PERISCOPE-D1` and is located with `xdotool search --name`.
-- Tests that pgrep/pkill must anchor on the binary (`'^mpv srt://'`, `'^[^ ]*ffmpeg .*service_name=periscope'`):
+- Window identity: mpv runs with a fixed title (`PERISCOPE-VIEW` in the binary, `PERISCOPE-D1` in d1).
+- Tests that pgrep/pkill must anchor on the binary (`'^mpv .*srt://'`, `'^[^ ]*ffmpeg .*service_name=periscope'`):
   a bare `pkill -f PERISCOPE` also matches any shell whose command line quotes the pattern, including the
   one running the test.
 - Keep the sender free of UI: no windows, tray icons or console output. Logs go to `%LOCALAPPDATA%\periscope`.
