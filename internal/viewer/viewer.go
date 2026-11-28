@@ -7,14 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,8 +40,12 @@ type viewer struct {
 
 	mu       sync.Mutex // guards the fields below and serializes window changes
 	mode     string
-	opacity  float64
+	screen   int     // feed monitor, as numbered by `periscope screens`
+	opacity  float64 // overlay opacity for windows on the feed's monitor (1 = not faded)
 	peekFrom float64 // opacity to restore when peek ends; negative when not peeking
+	faded    map[uint32]float64
+	classes  map[uint32]string
+	mpvID    uint32
 	cancel   context.CancelFunc
 }
 
@@ -82,7 +84,10 @@ func Run(ctx context.Context, c config.Config, stateDir, mode string) error {
 		include:  regexp.MustCompile(c.View.OverlayInclude), // validated by ValidateView
 		exclude:  regexp.MustCompile(c.View.OverlayExclude),
 		mode:     mode,
+		screen:   c.View.Screen,
 		opacity:  1,
+		faded:    map[uint32]float64{},
+		classes:  map[uint32]string{},
 		peekFrom: -1,
 		cancel:   cancel,
 	}
@@ -117,9 +122,23 @@ func Run(ctx context.Context, c config.Config, stateDir, mode string) error {
 	v.log.Printf("listening on srt://0.0.0.0:%d", c.Port)
 
 	if v.x11err == nil {
+		// New windows show up through the client list; windows dragged between monitors only
+		// through the periodic pass.
 		go func() {
-			if err := x11.WatchClientList(ctx, v.fadeNewWindows); err != nil && ctx.Err() == nil {
+			if err := x11.WatchClientList(ctx, v.reconcile); err != nil && ctx.Err() == nil {
 				v.log.Printf("window watcher stopped: %v", err)
+			}
+		}()
+		go func() {
+			t := time.NewTicker(time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					v.reconcile()
+				}
 			}
 		}()
 	}
@@ -130,7 +149,7 @@ func Run(ctx context.Context, c config.Config, stateDir, mode string) error {
 	control.Serve(ctx, ln, v.handle)
 	if v.x11err == nil {
 		v.mu.Lock()
-		if err := v.applyOpacity(1); err != nil {
+		if _, err := v.applyOpacity(1); err != nil {
 			v.log.Printf("restore opacity: %v", err)
 		}
 		v.mu.Unlock()
@@ -174,6 +193,13 @@ func (v *viewer) handle(_ context.Context, r control.Request) (string, error) {
 		return v.setMode(arg)
 	case "peek":
 		return v.peek()
+	case "screen":
+		if arg == "index" { // the monitor number, for `periscope screen --default`
+			v.mu.Lock()
+			defer v.mu.Unlock()
+			return fmt.Sprint(v.screen), nil
+		}
+		return v.setScreen(arg)
 	case "opacity":
 		return v.setOpacityCmd(arg)
 	case "shot":
@@ -191,6 +217,7 @@ func (v *viewer) status() string {
 	v.mu.Unlock()
 	var b strings.Builder
 	fmt.Fprintf(&b, "viewer : running (mode: %s)\n", mode)
+	fmt.Fprintf(&b, "screen : %s\n", v.screenLabel())
 	var w, h int
 	var fps float64
 	// Ask for the rest only after width answers, so a hung mpv costs one timeout, not three.
@@ -220,229 +247,6 @@ func (v *viewer) status() string {
 	}
 	fmt.Fprintf(&b, "\nshots  : %s", v.cfg.ShotDir)
 	return b.String()
-}
-
-// ---- layout -----------------------------------------------------------------------
-
-func (v *viewer) mpvWindow() (uint32, error) {
-	pattern := "^" + mpv.Title + "$"
-	for i := 0; i < 50; i++ {
-		if id, err := x11.FindByName(pattern); err == nil {
-			return id, nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return 0, errors.New("viewer window not found")
-}
-
-func (v *viewer) setMode(mode string) (string, error) {
-	if !slices.Contains(config.Modes, mode) {
-		return "", fmt.Errorf("unknown mode %q (%s)", mode, strings.Join(config.Modes, " | "))
-	}
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	note := ""
-	if v.x11err != nil {
-		var err error
-		switch mode {
-		case "full":
-			err = errors.Join(v.mpv.Set("fullscreen", true), v.mpv.Set("ontop", true))
-		case "overlay":
-			err = errors.Join(v.mpv.Set("ontop", false), v.mpv.Set("fullscreen", true))
-		default:
-			err = errors.Join(v.mpv.Set("ontop", false), v.mpv.Set("fullscreen", false))
-			note = " (place the window with your desktop's tiling keys: " + v.x11err.Error() + ")"
-		}
-		if err != nil {
-			return "", err
-		}
-	} else if err := v.applyMode(mode); err != nil {
-		return "", err
-	}
-	v.mode, v.peekFrom = mode, -1
-	return "mode: " + mode + note, nil
-}
-
-// applyMode places mpv's window for mode on X11. Callers hold v.mu.
-func (v *viewer) applyMode(mode string) error {
-	id, err := v.mpvWindow()
-	if err != nil {
-		return err
-	}
-	switch mode {
-	case "overlay":
-		if err := errors.Join(v.mpv.Set("ontop", false), v.mpv.Set("fullscreen", true)); err != nil {
-			return err
-		}
-		if err := x11.SetState(id, "add", "below", "skip_taskbar"); err != nil {
-			return err
-		}
-		return v.applyOpacity(v.cfg.OverlayOpacity)
-	case "full":
-		if err := x11.SetState(id, "remove", "below"); err != nil {
-			return err
-		}
-		if err := errors.Join(v.mpv.Set("fullscreen", true), v.mpv.Set("ontop", true)); err != nil {
-			return err
-		}
-		return v.applyOpacity(1)
-	default: // split-left, split-right
-		if err := errors.Join(v.mpv.Set("ontop", false), v.mpv.Set("fullscreen", false)); err != nil {
-			return err
-		}
-		// wmctrl changes at most two state flags per call.
-		if err := errors.Join(x11.SetState(id, "remove", "below", "fullscreen"),
-			x11.SetState(id, "remove", "maximized_vert", "maximized_horz")); err != nil {
-			return err
-		}
-		m, err := x11.Monitor(v.cfg.Screen)
-		if err != nil {
-			return err
-		}
-		w := int(float64(m.W) * v.cfg.SplitRatio)
-		x := m.X
-		if mode == "split-right" {
-			x = m.X + m.W - w
-		}
-		time.Sleep(150 * time.Millisecond) // let the WM finish leaving fullscreen
-		if err := x11.MoveResize(id, x, m.Y, w, m.H); err != nil {
-			return err
-		}
-		return v.applyOpacity(1)
-	}
-}
-
-func (v *viewer) cycleMode() (string, error) {
-	v.mu.Lock()
-	cur := v.mode
-	v.mu.Unlock()
-	next := map[string]string{"overlay": "split-left", "split-left": "full"}[cur]
-	if next == "" {
-		next = "overlay"
-	}
-	return v.setMode(next)
-}
-
-// ---- opacity ----------------------------------------------------------------------
-
-func (v *viewer) overlayWindows() ([]uint32, error) {
-	ws, err := x11.Windows()
-	if err != nil {
-		return nil, err
-	}
-	self, _ := x11.FindByName("^" + mpv.Title + "$")
-	var ids []uint32
-	for _, w := range ws {
-		if w.Desktop == -1 || w.ID == self {
-			continue
-		}
-		class := x11.Class(w.ID)
-		if v.cfg.OverlayInclude != "" && !v.include.MatchString(class) {
-			continue
-		}
-		if v.cfg.OverlayExclude != "" && v.exclude.MatchString(class) {
-			continue
-		}
-		ids = append(ids, w.ID)
-	}
-	return ids, nil
-}
-
-// applyOpacity sets every overlay window to o. Callers hold v.mu.
-func (v *viewer) applyOpacity(o float64) error {
-	if v.x11err != nil {
-		return v.x11err
-	}
-	ids, err := v.overlayWindows()
-	if err != nil {
-		return err
-	}
-	var errs []error
-	for _, id := range ids {
-		if err := x11.SetOpacity(id, o); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	v.opacity = o
-	if len(errs) > 0 {
-		v.log.Printf("set opacity on %d window(s) failed: %v", len(errs), errors.Join(errs...))
-	}
-	return nil
-}
-
-// fadeNewWindows gives windows opened since the last change the current overlay opacity.
-func (v *viewer) fadeNewWindows() {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	if v.opacity >= 0.999 {
-		return
-	}
-	ids, err := v.overlayWindows()
-	if err != nil {
-		v.log.Printf("list windows: %v", err)
-		return
-	}
-	for _, id := range ids {
-		if !x11.HasOpacity(id) {
-			if err := x11.SetOpacity(id, v.opacity); err != nil {
-				v.log.Printf("fade new window: %v", err)
-			}
-		}
-	}
-}
-
-func (v *viewer) setOpacityCmd(arg string) (string, error) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	var o float64
-	switch arg {
-	case "":
-		return fmt.Sprintf("%.2f", v.opacity), nil
-	case "reset":
-		o = 1
-	case "cycle":
-		o = nextStep(v.cfg.OpacitySteps, v.opacity)
-	default:
-		var err error
-		o, err = strconv.ParseFloat(arg, 64)
-		if err != nil || o < 0 || o > 1 {
-			return "", fmt.Errorf("opacity must be between 0 and 1, cycle or reset (got %q)", arg)
-		}
-	}
-	if err := v.applyOpacity(o); err != nil {
-		return "", err
-	}
-	v.peekFrom = -1
-	return fmt.Sprintf("opacity: %.2f", o), nil
-}
-
-// nextStep returns the step after cur, or the first step when cur isn't one of them.
-func nextStep(steps []float64, cur float64) float64 {
-	for i, s := range steps {
-		if math.Abs(s-cur) < 0.005 && i+1 < len(steps) {
-			return steps[i+1]
-		}
-	}
-	return steps[0]
-}
-
-func (v *viewer) peek() (string, error) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	if v.peekFrom >= 0 {
-		restore := v.peekFrom
-		if err := v.applyOpacity(restore); err != nil {
-			return "", err
-		}
-		v.peekFrom = -1
-		return fmt.Sprintf("peek off: opacity %.2f", restore), nil
-	}
-	from := v.opacity
-	if err := v.applyOpacity(v.cfg.PeekOpacity); err != nil {
-		return "", err
-	}
-	v.peekFrom = from
-	return fmt.Sprintf("peek on: opacity %.2f", v.cfg.PeekOpacity), nil
 }
 
 // ---- screenshots ------------------------------------------------------------------
