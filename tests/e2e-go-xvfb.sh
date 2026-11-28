@@ -52,7 +52,7 @@ wait_for() {  # wait_for <seconds> <command...>: retry until the command succeed
 }
 receiving() { view status | grep -q "receiving $1"; }
 # Anchored on the binary so the patterns can't match a shell whose command line quotes them.
-MPV_RE='^mpv srt://'
+MPV_RE='^mpv .*srt://'
 FF_RE='^[^ ]*ffmpeg .*service_name=periscope'
 export MPV_RE FF_RE
 
@@ -89,6 +89,14 @@ check "clipboard holds the PNG"         bash -c "xclip -selection clipboard -t T
 check "shot --path returns"             timeout 5 env PERISCOPE_CONFIG="$VIEW_CFG" "$P" shot --path
 [[ "$(png_size "$shot")" == "2560x1440" ]] && ok "screenshot is native res" || fail "screenshot res $(png_size "$shot")"
 check "latest.png symlink"              test -L "$TMP/shots/latest.png"
+check "screenshots are private"         bash -c "[[ \$(stat -c %a '$shot') == 600 ]]"
+
+echo "== secrets"
+mpvpid=$(pgrep -f "$MPV_RE" | head -n1)
+[[ -n $mpvpid ]] && ok "found mpv ($mpvpid)" || fail "mpv not found by \$MPV_RE"
+check "passphrase not on mpv's command line" bash -c "[[ -r /proc/$mpvpid/cmdline ]] && ! tr '\\0' ' ' < /proc/$mpvpid/cmdline | grep -q '$PASS'"
+check "mpv's options file is private"   bash -c "[[ \$(stat -c %a '$STATE/mpv-secret.conf') == 600 ]]"
+check "state dir is private"            bash -c "[[ \$(stat -c %a '$STATE') == 700 ]]"
 
 echo "== overlay / opacity (feed on monitor 0 = left half)"
 xmessage -geometry 300x100+50+50 app1 & sleep 1
@@ -189,6 +197,8 @@ check "stop restores before replying"   bash -c "PERISCOPE_CONFIG='$VIEW_CFG' '$
 wait_for 5 bash -c '! pgrep -f "$MPV_RE"' && ok "mpv ended with the viewer" || fail "mpv still running"
 [[ -z "$(opacity_of "$app")" ]] && ok "opacity restored" || fail "opacity not restored"
 check "status says stopped"             bash -c "PERISCOPE_CONFIG='$VIEW_CFG' '$P' status | grep -q 'viewer : stopped'"
+check "mpv's options file removed"      test ! -e "$STATE/mpv-secret.conf"
+check "no passphrase in any log"        bash -c "! grep -rqE '$PASS|wrongpassphrase000' '$STATE'"
 
 echo "== crashed viewer: stop still cleans up"
 view view overlay >/dev/null; sleep 1

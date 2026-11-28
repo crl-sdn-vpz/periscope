@@ -18,7 +18,7 @@ mkdir -p "$TMP/dist" "$TMP/shim" "$TMP/home" "$TMP/run"
 chmod 700 "$TMP/run"
 (cd "$ROOT" && CGO_ENABLED=0 go build -o "$TMP/dist/periscope_linux_amd64" ./cmd/periscope) || { echo "build failed"; exit 1; }
 cp "$ROOT/assets/icon-256.png" "$TMP/dist/periscope.png"
-(cd "$TMP/dist" && sha256sum periscope_linux_amd64 > SHA256SUMS)
+(cd "$TMP/dist" && sha256sum periscope_linux_amd64 periscope.png > SHA256SUMS)
 printf '#!/bin/sh\nexit 0\n' > "$TMP/shim/sudo"; chmod +x "$TMP/shim/sudo"
 port=$(( 20000 + RANDOM % 20000 ))
 python3 -m http.server "$port" --bind 127.0.0.1 --directory "$TMP/dist" >/dev/null 2>&1 & srv=$!
@@ -36,7 +36,27 @@ check "binary installed"                test -x "$P"
 check "config written, private"         bash -c "[[ \$(stat -c %a '$HOME/.config/periscope/config.json') == 600 ]]"
 check "launchers installed"             test -f "$apps/periscope-toggle.desktop" -a -f "$apps/periscope-menu.desktop" -a -f "$apps/periscope-uninstall.desktop"
 check "icon installed and used"         bash -c "test -f '$HOME/.local/share/icons/hicolor/256x256/apps/periscope.png' && grep -q '^Icon=periscope$' '$apps/periscope-toggle.desktop'"
+check "launcher runs the installed path" grep -q "^Exec=\"$P\" toggle$" "$apps/periscope-toggle.desktop"
 "$P" status >/dev/null 2>&1   # creates the runtime dir, as any use would
+
+echo "== a tampered icon is skipped"
+cp "$TMP/dist/periscope.png" "$TMP/icon.bak"; printf 'x' >> "$TMP/dist/periscope.png"
+rm -f "$HOME/.local/share/icons/hicolor/256x256/apps/periscope.png"
+bash "$ROOT/install/install.sh" --no-start >/dev/null 2>&1
+check "tampered icon not installed"     test ! -e "$HOME/.local/share/icons/hicolor/256x256/apps/periscope.png"
+check "launcher falls back to a stock icon" grep -q '^Icon=video-display$' "$apps/periscope-toggle.desktop"
+cp "$TMP/icon.bak" "$TMP/dist/periscope.png"
+bash "$ROOT/install/install.sh" --no-start >/dev/null 2>&1
+
+echo "== uninstall refuses to delete outside periscope's folders"
+mkdir -p "$TMP/project"; echo keep > "$TMP/project/notes.txt"
+cp "$HOME/.config/periscope/config.json" "$TMP/project/config.json"
+PERISCOPE_CONFIG="$TMP/project/config.json" "$P" uninstall --yes >/dev/null 2>&1
+check "only that config file is removed" test ! -e "$TMP/project/config.json"
+check "the folder holding it survives"  test -f "$TMP/project/notes.txt"
+bash "$ROOT/install/install.sh" --no-start >/dev/null 2>&1
+check "empty HOME refuses"              bash -c "! HOME= '$P' uninstall --yes"
+check "...and removes nothing"          test -x "$P"
 
 echo "== uninstall"
 check "uninstall without a terminal needs --yes" bash -c "! '$P' uninstall < /dev/null"

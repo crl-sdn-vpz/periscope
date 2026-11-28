@@ -96,27 +96,53 @@ step "Config"
 port=$("$p" config get port)
 
 if [[ $role == view ]]; then
+    # Open the port to the local network only (not to everyone on, say, a cafe's Wi-Fi when the
+    # laptop moves): the subnet of the interface that carries the default route.
+    dev=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "dev") print $(i + 1)}')
+    net=""
+    [[ -n $dev ]] && net=$(ip -4 route list dev "$dev" scope link 2>/dev/null | awk '$1 ~ /\// {print $1; exit}')
     if command -v ufw >/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
-        step "Opening UDP $port in ufw"; sudo ufw allow "$port/udp"
+        if [[ -n $net ]]; then
+            step "Opening UDP $port in ufw, for $net only"
+            sudo ufw allow from "$net" to any port "$port" proto udp comment periscope
+        else
+            warn "Couldn't tell the local subnet: opening UDP $port in ufw for any source"
+            sudo ufw allow "$port/udp" comment periscope
+        fi
     fi
     if command -v firewall-cmd >/dev/null && sudo firewall-cmd --state >/dev/null 2>&1; then
-        sudo firewall-cmd --add-port="$port/udp" --permanent && sudo firewall-cmd --reload
+        if [[ -n $net ]]; then
+            step "Opening UDP $port in firewalld, for $net only"
+            sudo firewall-cmd --permanent --add-rich-rule="rule family=ipv4 source address=$net port port=$port protocol=udp accept"
+        else
+            sudo firewall-cmd --permanent --add-port="$port/udp"
+        fi
+        sudo firewall-cmd --reload
     fi
     # App-grid launchers (Activities / app menu; right-click > Pin to Dash to keep them handy).
     share="${XDG_DATA_HOME:-$HOME/.local/share}"
     apps="$share/applications"
     mkdir -p "$apps"
     icon=video-display
-    if curl -fsSL "$base/periscope.png" -o "$tmp/periscope.png" 2>/dev/null; then
+    # The icon is checked against SHA256SUMS like the binary; without a matching entry it's skipped.
+    if curl -fsSL "$base/periscope.png" -o "$tmp/periscope.png" 2>/dev/null &&
+        isum=$(grep ' periscope\.png$' "$tmp/SHA256SUMS") &&
+        (cd "$tmp" && sha256sum -c --quiet - <<<"$isum") >/dev/null 2>&1; then
         install -D -m 644 "$tmp/periscope.png" "$share/icons/hicolor/256x256/apps/periscope.png"
         icon=periscope
     fi
+    # Desktop-entry quoting: a path with spaces in double quotes; one with characters that need more
+    # escaping falls back to the command name (found through PATH).
+    case "$p" in
+        *[\"\`\$\\]*) exec_p=periscope ;;
+        *) exec_p="\"$p\"" ;;
+    esac
     cat > "$apps/periscope-toggle.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=Periscope: start or stop viewer
 Comment=Start the periscope viewer, or stop it and make your windows solid again
-Exec=$p toggle
+Exec=$exec_p toggle
 Icon=$icon
 Terminal=false
 Categories=Utility;
@@ -126,7 +152,7 @@ DESKTOP
 Type=Application
 Name=Periscope: uninstall
 Comment=Remove periscope from this computer (asks first)
-Exec=bash -c "$p uninstall; read -r -p 'Press Enter to close ' x"
+Exec=$exec_p uninstall --pause
 Icon=$icon
 Terminal=true
 Categories=Utility;
@@ -136,7 +162,7 @@ DESKTOP
 Type=Application
 Name=Periscope menu
 Comment=Control the periscope viewer from a terminal menu
-Exec=$p menu
+Exec=$exec_p menu
 Icon=$icon
 Terminal=true
 Categories=Utility;

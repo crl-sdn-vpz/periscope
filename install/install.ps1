@@ -22,7 +22,6 @@ $asset = "periscope_windows_amd64.exe"
 $bin   = Join-Path $env:LOCALAPPDATA "periscope\bin"
 $exe   = Join-Path $bin "periscope.exe"
 $task  = "PeriscopeSender"
-$ps    = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
 
 function Write-Step([string]$msg) { Write-Host "==> " -ForegroundColor Cyan -NoNewline; Write-Host $msg }
 
@@ -74,10 +73,16 @@ if (Test-Path $exe) {
 New-Item -ItemType Directory -Force -Path $bin | Out-Null
 Copy-Item -Force (Join-Path $tmp $asset) $exe
 Unblock-File -Path $exe
-# The icon for the Start menu shortcuts (the exe itself carries none). Optional: fall back to the exe.
+# The icon for the Start menu shortcuts (the exe itself carries none), checked against SHA256SUMS like
+# the program. Optional: without a matching entry the shortcuts use the exe's default icon.
 $ico = Join-Path $bin "periscope.ico"
 try {
     Invoke-WebRequest -UseBasicParsing -Uri "$base/periscope.ico" -OutFile $ico
+    $icoLine = Get-Content (Join-Path $tmp "SHA256SUMS") | Where-Object { $_ -match "\s\*?periscope\.ico$" } | Select-Object -First 1
+    if (-not $icoLine -or ((Get-FileHash -Algorithm SHA256 -Path $ico).Hash.ToLower() -ne ($icoLine -split "\s+")[0].ToLower())) {
+        Remove-Item -Force $ico
+        $ico = $exe
+    }
 } catch {
     $ico = $exe
 }
@@ -122,8 +127,8 @@ $shortcuts = @(
     @{ Name = "Periscope - Start or stop sender"; Target = $conhost; Args = "--headless `"$exe`" send toggle" },
     @{ Name = "Periscope - Start sender"; Target = $conhost; Args = "--headless `"$exe`" send start" },
     @{ Name = "Periscope - Stop sender"; Target = $conhost; Args = "--headless `"$exe`" send stop" },
-    @{ Name = "Periscope - Status"; Target = $ps; Args = "-NoProfile -NoExit -Command `"& '$exe' send status`"" },
-    @{ Name = "Periscope - Uninstall"; Target = $ps; Args = "-NoProfile -Command `"& '$exe' uninstall; Read-Host 'Press Enter to close'`"" }
+    @{ Name = "Periscope - Status"; Target = $exe; Args = "send status --pause" },
+    @{ Name = "Periscope - Uninstall"; Target = $exe; Args = "uninstall --pause" }
 )
 foreach ($sc in $shortcuts) {
     $lnk = $wsh.CreateShortcut((Join-Path $menuDir ($sc.Name + ".lnk")))
