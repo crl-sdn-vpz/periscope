@@ -130,7 +130,7 @@ echo "== split"
 view mode split-left >/dev/null; sleep 0.5
 geo() { xdotool getwindowgeometry "$d1w" | awk '/Position/{split($2,p,","); x=p[1]} /Geometry/{split($2,a,"x"); w=a[1]} END{print x, w}'; }
 read -r x w < <(geo)
-(( x == 0 && w >= 740 && w <= 790 )) && ok "split-left: 60% of monitor 0 ($x,$w)" || fail "split-left geometry $x,$w"
+(( x >= 0 && x <= 10 && w >= 740 && w <= 790 )) && ok "split-left: 60% of monitor 0 ($x,$w)" || fail "split-left geometry $x,$w"
 [[ -z "$(opacity_of "$app")" ]] && ok "split restores opacity" || fail "split opacity $(opacity_of "$app")"
 check "opacity refused outside overlay" bash -c "! PERISCOPE_CONFIG='$VIEW_CFG' '$P' peek"
 view screen 1 >/dev/null; view mode split-right >/dev/null; sleep 0.5

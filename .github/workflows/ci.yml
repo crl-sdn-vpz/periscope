@@ -115,6 +115,8 @@ jobs:
           for ($i = 0; $i -lt 15 -and -not $down; $i++) { Start-Sleep -Seconds 1; & $exe send status | Out-Null; $down = ($LASTEXITCODE -ne 0) }
           if (-not $down) { throw "the toggle shortcut did not stop the sender" }
           Stop-Process -Id $listen.Id, $srv.Id -ErrorAction SilentlyContinue
+          # The runner exits with the last native exit code: the final `send status` is 1 on purpose.
+          exit 0
       - name: Desktop capture probe (informational)
         if: always()
         continue-on-error: true
