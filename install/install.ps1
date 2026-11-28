@@ -24,7 +24,12 @@ $exe   = Join-Path $bin "periscope.exe"
 $task  = "PeriscopeSender"
 $ps    = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
 
-function Write-Step([string]$msg) { Write-Host "==> $msg" }
+function Write-Step([string]$msg) { Write-Host "==> " -ForegroundColor Cyan -NoNewline; Write-Host $msg }
+
+Write-Host ""
+Write-Host "   periscope installer" -ForegroundColor Cyan
+Write-Host "   see another screen through your windows" -ForegroundColor DarkGray
+Write-Host ""
 
 if ($Role -ne "send") { throw "Only -Role send is supported on Windows for now (viewing on Windows arrives in milestone 3)." }
 
@@ -69,6 +74,13 @@ if (Test-Path $exe) {
 New-Item -ItemType Directory -Force -Path $bin | Out-Null
 Copy-Item -Force (Join-Path $tmp $asset) $exe
 Unblock-File -Path $exe
+# The icon for the Start menu shortcuts (the exe itself carries none). Optional: fall back to the exe.
+$ico = Join-Path $bin "periscope.ico"
+try {
+    Invoke-WebRequest -UseBasicParsing -Uri "$base/periscope.ico" -OutFile $ico
+} catch {
+    $ico = $exe
+}
 Remove-Item -Recurse -Force $tmp
 Write-Step ("Installed {0} to {1}" -f (& $exe version), $exe)
 
@@ -117,7 +129,7 @@ foreach ($sc in $shortcuts) {
     $lnk.TargetPath = $sc.Target
     $lnk.Arguments = $sc.Args
     $lnk.WorkingDirectory = $bin
-    $lnk.IconLocation = "$exe,0"
+    $lnk.IconLocation = "$ico,0"
     $lnk.Save()
 }
 
@@ -135,6 +147,7 @@ Start-Process -FilePath $conhost -ArgumentList "--headless `"$exe`" send start"
 Start-Sleep -Seconds 5
 & $exe send status
 Write-Host ""
-Write-Host "Done. You can close this window. The sender runs hidden until you stop it, and does NOT"
+Write-Host "Done." -ForegroundColor Green -NoNewline
+Write-Host " You can close this window. The sender runs hidden until you stop it, and does NOT"
 Write-Host "start by itself after a restart. Start menu > Periscope: Start or stop, Start, Stop, Status."
 Write-Host "Logs: $env:LOCALAPPDATA\periscope"

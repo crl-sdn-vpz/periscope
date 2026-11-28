@@ -20,7 +20,7 @@ test:
 lint:
     test -z "$(gofmt -l .)" || { gofmt -l .; echo "run: gofmt -w ."; exit 1; }
     for os in linux windows darwin; do GOOS=$os go vet ./...; done
-    shellcheck -S warning linux/d1 linux/install.sh install/install.sh scripts/test-pair.sh tests/e2e-xvfb.sh tests/e2e-go-xvfb.sh
+    shellcheck -S warning linux/d1 linux/install.sh install/install.sh scripts/test-pair.sh scripts/make-icons.sh scripts/make-screenshots.sh tests/e2e-xvfb.sh tests/e2e-go-xvfb.sh
 
 # End-to-end tests on a virtual X display (deps: see README > Development)
 e2e:
@@ -30,6 +30,14 @@ e2e:
 # Everything CI and reviewers expect to pass
 check: lint test e2e
 
+# Render assets/icon.svg to assets/icon-256.png and assets/periscope.ico
+icons:
+    scripts/make-icons.sh
+
+# Regenerate the README images from a real run on virtual displays (see the script for its deps)
+screenshots:
+    scripts/make-screenshots.sh
+
 # Cross-compile release binaries and SHA256SUMS into dist/
 dist:
     rm -rf dist && mkdir dist
@@ -38,6 +46,8 @@ dist:
         CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "{{ldflags}}" \
             -o "dist/periscope_${os}_${arch}${ext}" ./cmd/periscope; \
     done
+    cp assets/icon-256.png dist/periscope.png
+    cp assets/periscope.ico dist/periscope.ico
     cd dist && sha256sum periscope_* > SHA256SUMS
 
 # Hardware test of this checkout: serve dist/ on the LAN, start the viewer, print the Windows command
