@@ -2,7 +2,7 @@
 linux/config
 *.local.ps1
 # captures / logs
-*.png
+/*.png
 *.log
 *.ts
 # Windows download markers (copied in via WSL)
