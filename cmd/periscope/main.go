@@ -26,6 +26,7 @@ import (
 	"github.com/crl-sdn-vpz/periscope/internal/paths"
 	"github.com/crl-sdn-vpz/periscope/internal/proc"
 	"github.com/crl-sdn-vpz/periscope/internal/sender"
+	"github.com/crl-sdn-vpz/periscope/internal/ui"
 	"github.com/crl-sdn-vpz/periscope/internal/viewer"
 	"github.com/crl-sdn-vpz/periscope/internal/x11"
 )
@@ -57,6 +58,7 @@ On the device watching:
   periscope toggle                start the viewer if it is stopped, stop it if it runs (for hotkeys/launchers)
   periscope test                  start the viewer and play a local test pattern into it
   periscope pair                  print the one-line install command for the sending device
+  periscope logs [view|mpv|send|ffmpeg] [-n N] [-f]   show (or follow) a log
   periscope bind-gnome            register GNOME hotkeys (Super+Shift+V/S/A/P/M/O/N)
 
 Setup:
@@ -71,12 +73,21 @@ Config: $PERISCOPE_CONFIG or %s
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	out, err := run(ctx, os.Args[1:])
+	args := os.Args[1:]
+	out, err := run(ctx, args)
 	if out != "" {
-		fmt.Println(out)
+		cmd, rest := "help", []string(nil)
+		if len(args) > 0 {
+			cmd, rest = args[0], args[1:]
+		}
+		fmt.Println(style(cmd, rest, out))
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "periscope:", err)
+		msg := "periscope: " + err.Error()
+		if ui.Err {
+			msg = ui.Fail(true, ui.Style(true, ui.Red, msg))
+		}
+		fmt.Fprintln(os.Stderr, msg)
 		os.Exit(1)
 	}
 }
@@ -117,6 +128,8 @@ func run(ctx context.Context, args []string) (string, error) {
 		return cmdConfig(rest)
 	case "bind-gnome":
 		return cmdBindGnome()
+	case "logs":
+		return cmdLogs(ctx, rest)
 	case "version", "-v", "--version":
 		return version, nil
 	case "help", "-h", "--help":
@@ -331,12 +344,81 @@ func spawn(dir, name, sockName string, args []string) error {
 	return fmt.Errorf("the %s did not come up within 15s (see %s)", name, startLog)
 }
 
+func cmdLogs(ctx context.Context, args []string) (string, error) {
+	fs := flag.NewFlagSet("logs", flag.ContinueOnError)
+	n := fs.Int("n", 40, "lines to show")
+	follow := fs.Bool("f", false, "keep printing new lines (Ctrl+C stops)")
+	which := "view"
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		which, args = args[0], args[1:]
+	}
+	if err := fs.Parse(args); err != nil {
+		return "", err
+	}
+	files := map[string]string{"view": "viewer.log", "mpv": "mpv.log", "send": "sender.log", "ffmpeg": "ffmpeg.log"}
+	name, ok := files[which]
+	if !ok {
+		return "", fmt.Errorf("unknown log %q (view, mpv, send, ffmpeg)", which)
+	}
+	dir, err := paths.StateDir()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, name)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("no %s log yet (%s)", which, path)
+	}
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	lines = lines[max(0, len(lines)-*n):]
+	fmt.Println(ui.Style(ui.Out, ui.Dim, "── "+path+" ──"))
+	for _, l := range lines {
+		fmt.Println(colorLogLine(l))
+	}
+	if !*follow {
+		return "", nil
+	}
+	offset := int64(len(b))
+	for {
+		select {
+		case <-ctx.Done():
+			return "", nil
+		case <-time.After(500 * time.Millisecond):
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		st, _ := f.Stat()
+		if st.Size() < offset { // rotated
+			offset = 0
+		}
+		buf := make([]byte, st.Size()-offset)
+		_, _ = f.ReadAt(buf, offset)
+		_ = f.Close()
+		offset = st.Size()
+		for _, l := range strings.Split(strings.TrimRight(string(buf), "\n"), "\n") {
+			if l != "" {
+				fmt.Println(colorLogLine(l))
+			}
+		}
+	}
+}
+
 func cmdStop() (string, error) {
 	out, err := callViewer("stop")
 	if err == nil {
 		// Return only once the viewer has exited, so a start right after (toggle, menu) can't race it.
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 			if _, serr := callViewer("status"); serr != nil {
+				// A last sweep from here, after the viewer is gone: nothing can fade a window anymore,
+				// so stop always ends with every window solid (the viewer already restored them).
+				c, cerr := loadConfig()
+				if x11.Available() == nil && (cerr == nil || errors.Is(cerr, config.ErrNotFound)) {
+					if _, rerr := viewer.RestoreWindows(c.View); rerr != nil {
+						return out, fmt.Errorf("viewer stopped, but restoring windows failed: %w", rerr)
+					}
+				}
 				return out, nil
 			}
 		}
@@ -465,7 +547,7 @@ func cmdShot(args []string) (string, error) {
 // notify shows a desktop notification when notify-send exists (best effort: the result is also printed).
 func notify(title, body string) {
 	if _, err := exec.LookPath("notify-send"); err == nil {
-		_ = exec.Command("notify-send", "-a", "periscope", "-t", "1500", title, body).Run()
+		_ = exec.Command("notify-send", "-a", "periscope", "-i", "periscope", "-t", "1500", title, body).Run()
 	}
 }
 
@@ -601,24 +683,25 @@ func cmdMenu() error {
 	act := func(cmd string, args ...string) func() (string, error) {
 		return func() (string, error) { return callViewer(cmd, args...) }
 	}
+	shot := func(args ...string) func() (string, error) { return func() (string, error) { return cmdShot(args) } }
 	items := []menu.Item{
-		{Key: 'v', Label: "Start viewer", Run: func() (string, error) { return cmdView(context.Background(), nil) }},
-		{Key: 'o', Label: "Overlay mode", Run: act("mode", "overlay")},
-		{Key: 'l', Label: "Split left", Run: act("mode", "split-left")},
-		{Key: 'r', Label: "Split right", Run: act("mode", "split-right")},
-		{Key: 'f', Label: "Full screen", Run: act("mode", "full")},
-		{Key: 'n', Label: "Feed to next monitor", Run: act("screen", "next")},
-		{Key: 'd', Label: "Use this monitor by default", Run: func() (string, error) { return cmdScreen([]string{"--default"}) }},
-		{Key: 'p', Label: "Peek (toggle)", Run: act("peek")},
-		{Key: 'c', Label: "Cycle opacity", Run: act("opacity", "cycle")},
-		{Key: '0', Label: "Reset opacity", Run: act("opacity", "reset")},
-		{Key: 's', Label: "Screenshot to clipboard", Run: func() (string, error) { return cmdShot(nil) }},
-		{Key: 'a', Label: "Screenshot, copy path", Run: func() (string, error) { return cmdShot([]string{"--path"}) }},
-		{Key: 'w', Label: "Pair a sending device", Run: cmdPair},
-		{Key: 'x', Label: "Stop viewer", Run: cmdStop},
-		{Key: 'q', Label: "Quit menu"},
+		{Key: 'v', Section: "viewer", Label: "Start viewer", Run: func() (string, error) { return cmdView(context.Background(), nil) }},
+		{Key: 'x', Section: "viewer", Label: "Stop viewer", Run: cmdStop},
+		{Key: 'w', Section: "viewer", Label: "Pair a sending device", Run: cmdPair},
+		{Key: 'o', Section: "layout", Label: "Overlay", Run: act("mode", "overlay")},
+		{Key: 'l', Section: "layout", Label: "Split left", Run: act("mode", "split-left")},
+		{Key: 'r', Section: "layout", Label: "Split right", Run: act("mode", "split-right")},
+		{Key: 'f', Section: "layout", Label: "Full screen", Run: act("mode", "full")},
+		{Key: 'n', Section: "monitor", Label: "Feed to next monitor", Run: act("screen", "next")},
+		{Key: 'd', Section: "monitor", Label: "Keep it there by default", Run: func() (string, error) { return cmdScreen([]string{"--default"}) }},
+		{Key: 'p', Section: "overlay", Label: "Peek (fade / restore)", Run: act("peek")},
+		{Key: 'c', Section: "overlay", Label: "Next opacity step", Run: act("opacity", "cycle")},
+		{Key: '0', Section: "overlay", Label: "Opacity back to 1", Run: act("opacity", "reset")},
+		{Key: 's', Section: "capture", Label: "Screenshot → clipboard", Run: shot()},
+		{Key: 'a', Section: "capture", Label: "Screenshot → copy path", Run: shot("--path")},
 	}
-	return menu.Run("periscope "+version+" · viewer", items, cmdStatus, 2*time.Second)
+	status := func() string { return ui.Status(ui.Out, cmdStatus()) }
+	return menu.Run("periscope "+version, "viewer · see another screen through your windows", items, status, 2*time.Second)
 }
 
 // ---- GNOME hotkeys ----------------------------------------------------------------
