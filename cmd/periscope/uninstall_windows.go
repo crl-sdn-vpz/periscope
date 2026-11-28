@@ -88,11 +88,24 @@ func broadcastEnvironmentChange() {
 		uintptr(unsafe.Pointer(&result)))
 }
 
-// removeAfterExit deletes dir a few seconds after this process exits: it holds periscope.exe, which
-// Windows won't delete while it runs. A hidden cmd.exe waits, then removes the folder.
+// removeAfterExit deletes dir: everything but the running program now, and the folder itself a few
+// seconds after this process exits (Windows won't delete a running exe), via a hidden cmd.exe.
 func removeAfterExit(dir string) error {
-	cmd := exec.Command("cmd.exe", "/c", fmt.Sprintf(`ping -n 4 127.0.0.1 >nul & rmdir /s /q "%s"`, dir))
+	entries, err := os.ReadDir(dir)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, e := range entries {
+		if !strings.EqualFold(e.Name(), "bin") {
+			if err := removePath(filepath.Join(dir, e.Name())); err != nil {
+				return err
+			}
+		}
+	}
+	cmd := exec.Command("cmd.exe")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
+		// The exact command line: exec's argument quoting (\") is not what cmd.exe understands.
+		CmdLine:       fmt.Sprintf(`cmd.exe /d /c ping -n 4 127.0.0.1 >nul & rmdir /s /q "%s"`, dir),
 		HideWindow:    true,
 		CreationFlags: windows.CREATE_NO_WINDOW | windows.CREATE_NEW_PROCESS_GROUP,
 	}
