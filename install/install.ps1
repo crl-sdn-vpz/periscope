@@ -48,6 +48,12 @@ if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) {
     Write-Step "Stopping the running sender"
     Stop-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
 }
+# The v0.2 script sender (same task name) leaves its ffmpeg running unless stop.ps1 runs.
+$oldStop = Join-Path $env:LOCALAPPDATA "periscope\app\stop.ps1"
+if (Test-Path $oldStop) {
+    Write-Step "Stopping the v0.2 script sender"
+    & (Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe") -NoProfile -ExecutionPolicy Bypass -File $oldStop | Out-Null
+}
 if (Test-Path $exe) {
     # Windows PowerShell 5.1 turns a native command's redirected stderr into a terminating error under
     # "Stop", and "send stop" writes to stderr when no sender runs.

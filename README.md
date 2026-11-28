@@ -274,7 +274,8 @@ any sending device, and a sender that can also run on Linux (X11). ffmpeg and mp
 
 Status: it passes the same end-to-end checks as the scripts (Linux), and CI runs the Windows sender
 and installer on a Windows runner. **Until it ships as a GitHub release and has been tested on a
-real Windows → Linux pair, the scripts above stay the default.** Once released:
+real Windows → Linux pair (see "Test the preview" below), the scripts above stay the default.**
+Once released:
 
 ```bash
 # Viewing device (Linux): installs, starts the viewer, prints the command for the sending device
@@ -290,6 +291,76 @@ periscope menu      # arrows + Enter, or one key per action
 | `~/.config/periscope/config` + `periscope.config.ps1` | one JSON file per device: `periscope config init / get / set / show` |
 
 Build it from source: `just build` (Go 1.24+) → `bin/periscope`.
+
+### Test the preview on your two machines (no release needed)
+
+The Linux viewer builds the release files from a checkout and serves them on your LAN. Both
+machines then install through the same installers a release uses. Any v0.2 viewer or sender
+is stopped and replaced automatically.
+
+**You need:** both machines on the same network; Linux in an **X11/Xorg session**; Windows 10 21H2+
+or 11 with winget (it installs ffmpeg if missing).
+
+**1. Linux viewer:** install the build tools once, then start the test:
+```bash
+sudo snap install go --classic          # Go 1.24+ (Ubuntu's apt Go is too old)
+sudo apt install -y git just curl python3
+git clone https://github.com/crl-sdn-vpz/periscope && cd periscope
+just test-pair
+```
+It installs and starts the viewer (the screen goes black: that's the empty feed), then prints one
+line like this, with your IP and passphrase filled in:
+```powershell
+$env:PERISCOPE_DOWNLOAD_BASE='http://192.168.1.50:8000'; & ([scriptblock]::Create((irm http://192.168.1.50:8000/install.ps1))) -Role send -TargetHost 192.168.1.50 -Port 9000 -Passphrase '...'
+```
+Leave that terminal open.
+
+**2. Windows sender:** open **PowerShell** (normal user, not "Run as administrator") and paste the
+line. Expected output: `Downloading`, `Installed`, `Installing ffmpeg` (first time only),
+`Config`, `Registering autostart`, `Starting the sender`, then `sender : connecting ...` or
+`sender : streaming ...`, and `Done.` Within about 10 s the Linux screen shows the Windows desktop.
+
+**3. Linux:** press **Ctrl+C** in the `just test-pair` terminal. That only stops the download
+server; the viewer keeps running.
+
+**4. Checklist** (Linux commands are `periscope ...`; on Windows use
+`& "$env:LOCALAPPDATA\periscope\bin\periscope.exe" ...`):
+- [ ] Linux `periscope status` → `stream : receiving <Windows resolution> @ ~30 fps`
+- [ ] Latency: open a clock with seconds on Windows and compare. 100 to 250 ms is normal on a LAN.
+- [ ] `periscope shot`, then `file ~/Pictures/periscope/latest.png` → a PNG at the Windows resolution;
+      Ctrl+V pastes the image into an app.
+- [ ] `periscope menu`: try `o` `l` `r` `f` (layouts), `p` (peek), `c` / `0` (opacity), `s` (shot), `q`.
+- [ ] Overlay: your Linux windows are translucent over the feed, and a newly opened window is too.
+- [ ] Optional: `periscope bind-gnome`, then Super+Shift+S / P / M / O.
+- [ ] Windows `periscope.exe send status` → `sender : streaming to <linux-ip>:9000 for ...`
+- [ ] Windows shows no window, console or tray icon; Task Manager lists `periscope.exe` and `ffmpeg.exe`.
+- [ ] Windows `periscope.exe send stop` → Linux status says `waiting for the sender`, and `ffmpeg.exe`
+      is gone from Task Manager.
+- [ ] Windows `Start-ScheduledTask -TaskName PeriscopeSender` → the stream is back within ~10 s.
+- [ ] Linux `periscope stop`, then `periscope view` → the stream comes back on its own.
+- [ ] Sign out of Windows and back in (autostart) → the stream comes back.
+
+**If something fails,** send these:
+```bash
+periscope version; periscope status
+tail -n 40 "$XDG_RUNTIME_DIR/periscope/viewer.log" "$XDG_RUNTIME_DIR/periscope/mpv.log"
+```
+```powershell
+$p = "$env:LOCALAPPDATA\periscope"; & "$p\bin\periscope.exe" send status
+Get-Content "$p\sender.log" -Tail 30; Get-Content "$p\ffmpeg.log" -Tail 30
+```
+
+| Problem | Fix |
+|---|---|
+| Windows: `irm` can't connect | Wrong IP (the script uses the IP of Linux's default route), or a firewall blocks TCP 8000. The script opens it in ufw; remove that later with `sudo ufw delete allow 8000/tcp`. |
+| Windows Defender / SmartScreen flags `periscope.exe` | The preview build is unsigned. Allow it, or build it yourself on Windows with `go build ./cmd/periscope`. |
+| `sender.log` shows `ddagrab` / `No such filter` | Old ffmpeg: `winget upgrade Gyan.FFmpeg`, or `periscope.exe config set send.capture gdigrab`. |
+| Linux stays on `waiting for the sender` | UDP 9000 is blocked on Linux (`sudo ufw allow 9000/udp`), or the sender points at another IP (`periscope.exe config get send.target_host`). |
+| Overlay/split do nothing | You're on Wayland. Log into the Xorg session. |
+
+**Go back to v0.2:** Windows `periscope.exe send stop`, then
+`Unregister-ScheduledTask -TaskName PeriscopeSender -Confirm:$false`; Linux `periscope stop`. Then
+follow the Quick start at the top.
 
 ---
 
