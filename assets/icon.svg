@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Periscope</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#173a66"/>
+      <stop offset="1" stop-color="#0a1830"/>
+    </linearGradient>
+    <linearGradient id="tube" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#46e3d0"/>
+      <stop offset="1" stop-color="#1c9c8e"/>
+    </linearGradient>
+    <linearGradient id="head" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#46e3d0"/>
+      <stop offset="1" stop-color="#1c9c8e"/>
+    </linearGradient>
+    <radialGradient id="lens" cx="0.38" cy="0.36" r="0.7">
+      <stop offset="0" stop-color="#fff6d2"/>
+      <stop offset="0.4" stop-color="#ffc93d"/>
+      <stop offset="1" stop-color="#e07f00"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- the shared screen -->
+  <rect x="84" y="318" width="344" height="124" rx="24" fill="#0e2546" stroke="#46e3d0" stroke-width="14"/>
+  <path d="M120 372 h92 M120 400 h150 M236 372 h56" stroke="#46e3d0" stroke-width="12" stroke-linecap="round" opacity=".45"/>
+  <!-- the periscope rising out of it -->
+  <path d="M196 326 V190 a46 46 0 0 1 46 -46 H318" fill="none" stroke="url(#tube)" stroke-width="54"/>
+  <rect x="304" y="100" width="92" height="88" rx="20" fill="url(#head)"/>
+  <circle cx="350" cy="144" r="29" fill="#0a1830"/>
+  <circle cx="350" cy="144" r="22" fill="url(#lens)"/>
+  <!-- line of sight -->
+  <path d="M414 112 a52 52 0 0 1 0 64 M440 94 a84 84 0 0 1 0 100" fill="none" stroke="#ffc93d" stroke-width="12" stroke-linecap="round" opacity=".85"/>
+</svg>
