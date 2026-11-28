@@ -179,7 +179,8 @@ PERISCOPE_CONFIG="$BAD_CFG" "$P" config set passphrase wrongpassphrase000 >/dev/
 PERISCOPE_CONFIG="$BAD_CFG" "$P" send --detach >/dev/null
 sleep 6
 view status | grep -q "waiting for the sender" && ok "viewer did not accept it" || fail "viewer: $(view status | sed -n 2p)"
-PERISCOPE_CONFIG="$BAD_CFG" "$P" send status | grep -q "waiting for the viewer" && ok "sender keeps retrying" || fail "sender: $(PERISCOPE_CONFIG="$BAD_CFG" "$P" send status)"
+# Between attempts it says "waiting for the viewer", during one "connecting"; never "streaming".
+PERISCOPE_CONFIG="$BAD_CFG" "$P" send status | grep -qE "waiting for the viewer|connecting to" && ok "sender keeps retrying" || fail "sender: $(PERISCOPE_CONFIG="$BAD_CFG" "$P" send status)"
 PERISCOPE_CONFIG="$BAD_CFG" "$P" send stop >/dev/null
 
 echo "== stop"
