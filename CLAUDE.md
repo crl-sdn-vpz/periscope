@@ -65,6 +65,7 @@ internal/mpv | x11      mpv args + JSON IPC client (request_id) | wmctrl/xprop/x
 internal/menu           raw-terminal menu (x/term), pure key decoder
 install/install.sh|ps1  release-based installers (SHA256SUMS checked; PERISCOPE_DOWNLOAD_BASE for tests)
 tests/e2e-go-xvfb.sh    Go e2e: real `periscope send` (capture=test) → `periscope view`
+scripts/test-pair.sh    `just test-pair`: hardware test of a checkout (serves dist/ on the LAN, prints the Windows line)
 ```
 Dependencies: golang.org/x/sys and golang.org/x/term only (approved in ADR 0001). Ask before adding more.
 Keep `CGO_ENABLED=0` cross-compiles working (`just dist`).

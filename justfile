@@ -20,7 +20,7 @@ test:
 lint:
     test -z "$(gofmt -l .)" || { gofmt -l .; echo "run: gofmt -w ."; exit 1; }
     for os in linux windows darwin; do GOOS=$os go vet ./...; done
-    shellcheck -S warning linux/d1 linux/install.sh install/install.sh tests/e2e-xvfb.sh tests/e2e-go-xvfb.sh
+    shellcheck -S warning linux/d1 linux/install.sh install/install.sh scripts/test-pair.sh tests/e2e-xvfb.sh tests/e2e-go-xvfb.sh
 
 # End-to-end tests on a virtual X display (deps: see README > Development)
 e2e:
@@ -39,6 +39,10 @@ dist:
             -o "dist/periscope_${os}_${arch}${ext}" ./cmd/periscope; \
     done
     cd dist && sha256sum periscope_* > SHA256SUMS
+
+# Hardware test of this checkout: serve dist/ on the LAN, start the viewer, print the Windows command
+test-pair http_port="8000":
+    scripts/test-pair.sh {{http_port}}
 
 # Publish dist/ as a GitHub release for an existing tag (external write: needs the owner's OK)
 release tag: dist

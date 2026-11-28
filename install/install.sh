@@ -50,6 +50,9 @@ sum=$(grep " $asset\$" "$tmp/SHA256SUMS" || true)
 (cd "$tmp" && sha256sum -c --quiet - <<<"$sum") || die "checksum mismatch for $asset"
 
 mkdir -p "$HOME/.local/bin"
+if command -v d1 >/dev/null; then   # the v0.2 viewer would hold the same UDP port
+    d1 stop >/dev/null 2>&1 || true
+fi
 if [[ -x "$HOME/.local/bin/periscope" ]]; then   # an update: stop the old binary's roles first
     "$HOME/.local/bin/periscope" stop >/dev/null 2>&1 || true
     "$HOME/.local/bin/periscope" send stop >/dev/null 2>&1 || true
