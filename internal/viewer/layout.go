@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -303,9 +304,11 @@ func (v *viewer) applyOpacity(o float64) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	mon, err := x11.MonitorAt(v.screen)
-	if err != nil {
-		return 0, err
+	var mon x11.Monitor
+	if o < 0.999 { // restoring needs no monitor, so it works even if the monitor setup changed
+		if mon, err = x11.MonitorAt(v.screen); err != nil {
+			return 0, err
+		}
 	}
 	if id, err := x11.FindByName("^" + mpv.Title + "$"); err == nil {
 		v.mpvID = id
@@ -355,6 +358,42 @@ func (v *viewer) applyOpacity(o float64) (int, error) {
 		v.log.Printf("set opacity on %d window(s) failed: %v", len(errs), errors.Join(errs...))
 	}
 	return n, nil
+}
+
+// RestoreWindows makes every window that overlay may fade solid again, without a running viewer:
+// `periscope stop` uses it to clean up after a viewer that crashed or was killed.
+func RestoreWindows(c config.View) (int, error) {
+	if err := x11.Available(); err != nil {
+		return 0, err
+	}
+	include, err := regexp.Compile(c.OverlayInclude)
+	if err != nil {
+		return 0, err
+	}
+	exclude, err := regexp.Compile(c.OverlayExclude)
+	if err != nil {
+		return 0, err
+	}
+	v := &viewer{cfg: c, include: include, exclude: exclude, infos: map[uint32]x11.Info{}}
+	if id, err := x11.FindByName("^" + mpv.Title + "$"); err == nil {
+		v.mpvID = id
+	}
+	ws, err := x11.Windows()
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	var errs []error
+	for _, w := range ws {
+		if v.eligible(w) && x11.HasOpacity(w.ID) {
+			if err := x11.SetOpacity(w.ID, 1); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			n++
+		}
+	}
+	return n, errors.Join(errs...)
 }
 
 // reconcile keeps fading in step with windows that opened, closed or moved between monitors.

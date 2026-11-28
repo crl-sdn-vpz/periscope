@@ -288,7 +288,8 @@ periscope menu      # arrows + Enter, or one key per action
 |---|---|
 | `d1 view / mode / peek / opacity / shot / status / stop / test / pair / menu / bind-gnome` | same subcommands: `periscope view`, `periscope mode cycle`, ... |
 | (no equivalent) | `periscope screens`, `periscope screen <n\|next> [--default]`: pick the feed's monitor |
-| `windows\start.cmd`, `stop.ps1` | Start menu > Periscope, or **Ctrl+Alt+Shift+P** (`periscope send toggle`) |
+| `windows\start.cmd`, `stop.ps1`, logon autostart | Start menu > Periscope (`periscope send toggle/start/stop`); no autostart: it runs only when you start it |
+| `d1 stop` | `periscope stop` (also cleans up after a crashed viewer), `periscope toggle`, Super+Shift+V |
 | `windows\sender.ps1`, `start.cmd`, `stop.ps1`, `status.ps1` | `periscope send`, `send --detach`, `send stop`, `send status` |
 | `~/.config/periscope/config` + `periscope.config.ps1` | one JSON file per device: `periscope config init / get / set / show` |
 
@@ -319,10 +320,10 @@ Leave that terminal open.
 
 **2. Windows sender:** open **PowerShell** (normal user, not "Run as administrator") and paste the
 line. Expected output: `Downloading`, `Installed`, `Installing ffmpeg` (first time only),
-`Config`, `Registering autostart`, `Starting the sender`, then `sender : connecting ...` or
+`Config`, `Creating Start menu shortcuts`, `Starting the sender`, then `sender : connecting ...` or
 `sender : streaming ...`, and `Done.` Within about 10 s the Linux screen shows the Windows desktop.
-You can close PowerShell now: the sender runs hidden (a logon task) and never needs a terminal.
-See "Start and stop the sender on Windows" below for day-to-day use.
+You can close PowerShell now: the sender runs hidden and never needs a terminal. It does not start
+by itself after a restart; see "Start and stop the sender on Windows" below.
 
 **3. Linux:** press **Ctrl+C** in the `just test-pair` terminal. That only stops the download
 server; the viewer keeps running.
@@ -347,11 +348,13 @@ server; the viewer keeps running.
 - [ ] Windows shows no window, console or tray icon; Task Manager lists `periscope.exe` and `ffmpeg.exe`.
 - [ ] Windows `periscope.exe send stop` → Linux status says `waiting for the sender`, and `ffmpeg.exe`
       is gone from Task Manager.
-- [ ] Windows **Ctrl+Alt+Shift+P** stops the sender; pressing it again starts it (or use Start menu >
-      Periscope). "Periscope - Status" shows the state. See "Start and stop the sender on Windows".
+- [ ] Windows Start menu > **Periscope - Start or stop sender** stops it; again starts it.
+      **Periscope - Status** shows the state. See "Start and stop the sender on Windows".
 - [ ] Windows `Start-ScheduledTask -TaskName PeriscopeSender` → the stream is back within ~10 s.
 - [ ] Linux `periscope stop`, then `periscope view` → the stream comes back on its own.
-- [ ] Sign out of Windows and back in (autostart) → the stream comes back.
+- [ ] Restart Windows → the sender does **not** start by itself; Start menu > Periscope - Start sender does.
+- [ ] Linux `periscope stop` → every faded window is solid again (the reply says how many).
+- [ ] Linux `periscope bind-gnome`, then Super+Shift+V stops / starts the viewer (see "Control the viewer on Linux").
 
 **If something fails,** send these:
 ```bash
@@ -370,27 +373,53 @@ Get-Content "$p\sender.log" -Tail 30; Get-Content "$p\ffmpeg.log" -Tail 30
 | `sender.log` shows `ddagrab` / `No such filter` | Old ffmpeg: `winget upgrade Gyan.FFmpeg`, or `periscope.exe config set send.capture gdigrab`. |
 | Linux stays on `waiting for the sender` | UDP 9000 is blocked on Linux (`sudo ufw allow 9000/udp`), or the sender points at another IP (`periscope.exe config get send.target_host`). |
 | Overlay/split do nothing | You're on Wayland. Log into the Xorg session. |
+| Windows stay translucent after stopping | `periscope stop` (works without a running viewer). If it persists, send the output of `periscope windows` (start the viewer first) |
 | Opacity/peek seem to do nothing | Run `periscope windows`: it lists every window and whether it is faded, solid (on another monitor) or skipped (and why). Fading only touches windows centered on the feed's monitor, in overlay mode. Terminals in `view.overlay_exclude` (kitty, Alacritty, wezterm) keep their own transparency. |
 
 ### Start and stop the sender on Windows
 
-After the install, nothing needs a terminal. The sender starts by itself at every logon, hidden:
-no window, no taskbar button, no tray icon.
+After the install, nothing needs a terminal, and nothing runs until you start it: the sender
+does **not** start at logon. While it runs it is hidden: no window, no taskbar button, no tray icon.
 
 | To | Do this |
 |---|---|
-| Start or stop it | Press **Ctrl+Alt+Shift+P** anywhere. Press it again to switch back. |
-| Same, from the Start menu | Start menu → type **Periscope** → **Periscope - Start or stop sender** |
-| Only start / only stop | Start menu → **Periscope - Start sender** / **Periscope - Stop sender** |
-| See whether it runs | Start menu → **Periscope - Status** (opens a small window: `streaming to ...`, `waiting for the viewer ...` or `the sender is not running`; close it when done) |
-| Pin them | Right-click a Periscope shortcut → **Pin to Start** or **Pin to taskbar** |
+| Start it | Start menu → type **Periscope** → **Periscope - Start sender** |
+| Stop it | Start menu → **Periscope - Stop sender** |
+| One entry for both | **Periscope - Start or stop sender** (starts it if stopped, stops it if running) |
+| See whether it runs | **Periscope - Status** (opens a small window: `streaming to ...`, `waiting for the viewer ...` or `the sender is not running`; close it when done) |
+| Keep them handy | Right-click a Periscope entry → **Pin to Start** or **Pin to taskbar** |
 
-The hotkey and shortcuts don't show anything when they act. Check with the Status shortcut, or
-watch the Linux screen: the feed freezes on the last frame and `periscope status` says
-`waiting for the sender` when the sender stops.
+The start/stop entries show nothing when they act. Check with **Periscope - Status**, or on Linux:
+when the sender stops, the feed freezes on the last frame and `periscope status` says
+`waiting for the sender`. There is deliberately no hotkey (Ctrl+Alt+Shift+P, for one, opens
+Kaspersky's on-screen keyboard). To add your own: right-click the entry → Open file location →
+Properties → Shortcut key.
 
-If Ctrl+Alt+Shift+P does nothing right after the first install: Windows may only pick up the hotkey
-of a new Start menu shortcut after you sign out and back in. Until then, use the Start menu entry.
+From a terminal it's the same: `periscope send start`, `periscope send stop`, `periscope send toggle`,
+`periscope send status`.
+
+### Control the viewer on Linux
+
+| To | Hotkey (after `periscope bind-gnome`) | Launcher / command |
+|---|---|---|
+| Start or stop the viewer | **Super+Shift+V** | app grid: **Periscope: start or stop viewer** · `periscope toggle` |
+| Open the control menu | | app grid: **Periscope menu** · `periscope menu` |
+| Screenshot → clipboard (image) | **Super+Shift+S** | `periscope shot` · menu `s` |
+| Screenshot → clipboard (file path) | **Super+Shift+A** | `periscope shot --path` · menu `a` |
+| Peek (fade your windows almost fully, again to restore) | **Super+Shift+P** | `periscope peek` · menu `p` |
+| Next layout (overlay → split-left → full) | **Super+Shift+M** | `periscope mode <overlay\|split-left\|split-right\|full>` · menu `o` `l` `r` `f` |
+| Next overlay opacity (0.90 → 0.75 → 0.55 → 0.35) | **Super+Shift+O** | `periscope opacity <0-1\|cycle\|reset>` · menu `c` / `0` |
+| Feed to the next monitor | **Super+Shift+N** | `periscope screen <n\|next> [--default]` · menu `n` / `d` |
+
+- `periscope bind-gnome` registers the hotkeys (GNOME). Change them in Settings → Keyboard →
+  Keyboard Shortcuts → Custom Shortcuts (entries named `periscope: ...`). Other desktops: bind the
+  commands in the right column.
+- The app-grid launchers come with `install/install.sh` (and `just test-pair`). Right-click →
+  **Pin to Dash** keeps them in the dock.
+- Stopping (any of the ways above) makes every faded window solid again before it returns. If a
+  window ever stays translucent (say, after a crash), `periscope stop` cleans it up even when no
+  viewer runs.
+- The menu's own keys are listed at its bottom: arrows/j/k + Enter, or one key per action; q/Esc quits.
 
 **Go back to v0.2:** Windows `periscope.exe send stop`, then
 `Unregister-ScheduledTask -TaskName PeriscopeSender -Confirm:$false`; Linux `periscope stop`. Then

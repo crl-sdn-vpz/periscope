@@ -1,5 +1,6 @@
-# Installs the periscope binary from GitHub Releases plus ffmpeg, writes the config, registers
-# autostart at logon and starts the sender. Windows can send in this version; viewing comes later.
+# Installs the periscope binary from GitHub Releases plus ffmpeg, writes the config, creates the
+# Start menu shortcuts and starts the sender once. It never starts by itself (no logon autostart):
+# start and stop it from Start menu > Periscope. Windows can send in this version; viewing comes later.
 #
 # One command (`periscope pair` on the viewer prints it with your values filled in):
 #   powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/crl-sdn-vpz/periscope/main/install/install.ps1))) -Role send -TargetHost <ip> -Port 9000 -Passphrase '<passphrase>'"
@@ -45,9 +46,12 @@ $got  = (Get-FileHash -Algorithm SHA256 -Path (Join-Path $tmp $asset)).Hash.ToLo
 if ($got -ne $want) { throw "Checksum mismatch for $asset (got $got, want $want)" }
 
 # --- 2. install ----------------------------------------------------------------
+# Earlier versions (v0.2 scripts, first v0.3 previews) started the sender at every logon through
+# this task. The sender now runs only when asked, so the task goes away.
 if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) {
-    Write-Step "Stopping the running sender"
+    Write-Step "Removing the logon autostart (scheduled task $task)"
     Stop-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $task -Confirm:$false
 }
 # The v0.2 script sender (same task name) leaves its ffmpeg running unless stop.ps1 runs.
 $oldStop = Join-Path $env:LOCALAPPDATA "periscope\app\stop.ps1"
@@ -92,29 +96,21 @@ if (-not (& $exe config get send.target_host)) {
     throw "No target host yet. Run 'periscope pair' on the viewing device and paste the command it prints."
 }
 
-# --- 5. autostart + start ------------------------------------------------------
-# conhost --headless runs the console app with no window (Windows 10 21H2+ / Windows 11).
-Write-Step "Registering autostart (scheduled task $task)"
-$action    = New-ScheduledTaskAction -Execute "conhost.exe" -Argument "--headless `"$exe`" send"
-$trigger   = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-$settings  = New-ScheduledTaskSettingsSet -Hidden -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-             -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
-$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
-Register-ScheduledTask -TaskName $task -Action $action -Trigger $trigger -Settings $settings `
-    -Principal $principal -Force | Out-Null
-
-# --- 6. Start Menu shortcuts + PATH ---------------------------------------------
+# --- 5. Start Menu shortcuts + PATH ---------------------------------------------
 # The shortcuts run periscope through conhost --headless: no window, no taskbar entry, no PowerShell.
-Write-Step "Creating Start Menu shortcuts (folder Periscope; Ctrl+Alt+Shift+P starts/stops the sender)"
+# No hotkey: common ones collide with other software (Ctrl+Alt+Shift+P opens Kaspersky's keyboard).
+# The folder is recreated so shortcuts from an older install (with a hotkey) don't linger.
+Write-Step "Creating Start menu shortcuts (folder Periscope)"
 $menuDir = Join-Path ([Environment]::GetFolderPath("Programs")) "Periscope"
+if (Test-Path $menuDir) { Remove-Item -Recurse -Force $menuDir }
 New-Item -ItemType Directory -Force -Path $menuDir | Out-Null
 $conhost = Join-Path $env:SystemRoot "System32\conhost.exe"
 $wsh = New-Object -ComObject WScript.Shell
 $shortcuts = @(
-    @{ Name = "Periscope - Start or stop sender"; Target = $conhost; Args = "--headless `"$exe`" send toggle"; Key = "Ctrl+Alt+Shift+P" },
-    @{ Name = "Periscope - Start sender"; Target = $conhost; Args = "--headless `"$exe`" send start"; Key = "" },
-    @{ Name = "Periscope - Stop sender"; Target = $conhost; Args = "--headless `"$exe`" send stop"; Key = "" },
-    @{ Name = "Periscope - Status"; Target = $ps; Args = "-NoProfile -NoExit -Command `"& '$exe' send status`""; Key = "" }
+    @{ Name = "Periscope - Start or stop sender"; Target = $conhost; Args = "--headless `"$exe`" send toggle" },
+    @{ Name = "Periscope - Start sender"; Target = $conhost; Args = "--headless `"$exe`" send start" },
+    @{ Name = "Periscope - Stop sender"; Target = $conhost; Args = "--headless `"$exe`" send stop" },
+    @{ Name = "Periscope - Status"; Target = $ps; Args = "-NoProfile -NoExit -Command `"& '$exe' send status`"" }
 )
 foreach ($sc in $shortcuts) {
     $lnk = $wsh.CreateShortcut((Join-Path $menuDir ($sc.Name + ".lnk")))
@@ -122,7 +118,6 @@ foreach ($sc in $shortcuts) {
     $lnk.Arguments = $sc.Args
     $lnk.WorkingDirectory = $bin
     $lnk.IconLocation = "$exe,0"
-    if ($sc.Key) { $lnk.Hotkey = $sc.Key }
     $lnk.Save()
 }
 
@@ -133,11 +128,13 @@ if (($userPath -split ";") -notcontains $bin) {
     Write-Step "Added $bin to your PATH (takes effect in new terminals)"
 }
 
-Write-Step "Starting the sender"
-Start-ScheduledTask -TaskName $task
+# --- 6. start once ---------------------------------------------------------------
+# Same command as the "Start sender" shortcut, so the install proves the shortcut path works.
+Write-Step "Starting the sender (this time only; afterwards use Start menu > Periscope)"
+Start-Process -FilePath $conhost -ArgumentList "--headless `"$exe`" send start"
 Start-Sleep -Seconds 5
 & $exe send status
 Write-Host ""
-Write-Host "Done. You can close this window: the sender runs hidden and starts again at every logon."
-Write-Host "Start/stop: Ctrl+Alt+Shift+P, or Start menu > Periscope. Logs: $env:LOCALAPPDATA\periscope"
-Write-Host "Remove autostart: Unregister-ScheduledTask -TaskName $task -Confirm:`$false"
+Write-Host "Done. You can close this window. The sender runs hidden until you stop it, and does NOT"
+Write-Host "start by itself after a restart. Start menu > Periscope: Start or stop, Start, Stop, Status."
+Write-Host "Logs: $env:LOCALAPPDATA\periscope"

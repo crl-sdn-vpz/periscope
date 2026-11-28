@@ -90,9 +90,33 @@ if [[ $role == view ]]; then
     if command -v firewall-cmd >/dev/null && sudo firewall-cmd --state >/dev/null 2>&1; then
         sudo firewall-cmd --add-port="$port/udp" --permanent && sudo firewall-cmd --reload
     fi
+    # App-grid launchers (Activities / app menu; right-click > Pin to Dash to keep them handy).
+    apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    mkdir -p "$apps"
+    cat > "$apps/periscope-toggle.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Periscope: start or stop viewer
+Comment=Start the periscope viewer, or stop it and make your windows solid again
+Exec=$p toggle
+Icon=video-display
+Terminal=false
+Categories=Utility;
+DESKTOP
+    cat > "$apps/periscope-menu.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Periscope menu
+Comment=Control the periscope viewer from a terminal menu
+Exec=$p menu
+Icon=video-display
+Terminal=true
+Categories=Utility;
+DESKTOP
+    echo "==> Added app launchers: 'Periscope: start or stop viewer' and 'Periscope menu'"
     # stdin is this script when piped from curl, so the question goes to the terminal.
     if [[ "${XDG_CURRENT_DESKTOP:-}" == *GNOME* ]] && { : </dev/tty; } 2>/dev/null; then
-        read -r -p "Register GNOME hotkeys (Super+Shift+S/A/P/M/O)? [Y/n] " a </dev/tty
+        read -r -p "Register GNOME hotkeys (Super+Shift+V/S/A/P/M/O/N)? [Y/n] " a </dev/tty
         [[ ${a:-y} =~ ^[Yy]$ ]] && "$p" bind-gnome
     fi
 fi

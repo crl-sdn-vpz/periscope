@@ -69,7 +69,9 @@ internal/mpv | x11      mpv args + JSON IPC client (request_id) | wmctrl/xprop/x
 internal/menu           raw-terminal menu (x/term), pure key decoder; actions run in a goroutine so quit keys work
 internal/clipboard      xclip/wl-copy with no pipes attached: they fork a server that would block Wait
 install/install.sh|ps1  release-based installers (SHA256SUMS checked; PERISCOPE_DOWNLOAD_BASE for tests);
-                        Windows also makes Start Menu shortcuts (conhost --headless, Ctrl+Alt+Shift+P toggle)
+                        Windows: no logon autostart (owner: runs only when asked), Start menu shortcuts via
+                        conhost --headless, no hotkey (Ctrl+Alt+Shift+P = Kaspersky keyboard). Linux view: app-grid
+                        launchers. Restoring opacity sets 0xffffffff then removes it (mutter ignores bare deletes)
 tests/e2e-go-xvfb.sh    Go e2e: real `periscope send` (capture=test) → `periscope view`
 scripts/test-pair.sh    `just test-pair`: hardware test of a checkout (serves dist/ on the LAN, prints the Windows line)
 ```

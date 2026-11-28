@@ -207,8 +207,20 @@ func (v *viewer) handle(_ context.Context, r control.Request) (string, error) {
 	case "shot":
 		return v.shot()
 	case "stop":
+		// Restore the windows before answering, so `periscope stop` returns with everything solid.
+		msg := "viewer stopped"
+		if v.x11err == nil {
+			v.mu.Lock()
+			n := len(v.faded)
+			if _, err := v.applyOpacity(1); err != nil {
+				msg += fmt.Sprintf(" (restoring windows failed: %v; run periscope stop again)", err)
+			} else if n > 0 {
+				msg += fmt.Sprintf(", %d window(s) back to solid", n)
+			}
+			v.mu.Unlock()
+		}
 		go func() { time.Sleep(50 * time.Millisecond); v.cancel() }()
-		return "viewer stopping", nil
+		return msg, nil
 	}
 	return "", fmt.Errorf("unknown viewer command %q", r.Cmd)
 }

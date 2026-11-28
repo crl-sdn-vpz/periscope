@@ -66,10 +66,9 @@ jobs:
           $exe = "$env:LOCALAPPDATA\periscope\bin\periscope.exe"
 
           & $exe send status
-          if ($LASTEXITCODE -ne 0) {
-            Get-ScheduledTaskInfo -TaskName PeriscopeSender | Format-List
-            throw "the scheduled task did not start the sender"
-          }
+          if ($LASTEXITCODE -ne 0) { throw "the install did not start the sender" }
+          if (Get-ScheduledTask -TaskName PeriscopeSender -ErrorAction SilentlyContinue) { throw "a logon autostart task exists" }
+          $conhost = Join-Path $env:SystemRoot "System32\conhost.exe"
 
           # Switch to the test pattern and run a viewer stand-in: ffmpeg as the SRT listener.
           & $exe send stop
@@ -79,7 +78,7 @@ jobs:
             "srt://0.0.0.0:9000?mode=listener&latency=80000&pbkeylen=16&passphrase=abcdefghij12345",
             "-t", "20", "-f", "null", "-")
           Start-Sleep -Seconds 2
-          Start-ScheduledTask -TaskName PeriscopeSender
+          Start-Process -FilePath $conhost -ArgumentList "--headless `"$exe`" send start"
           $streaming = $false
           for ($i = 0; $i -lt 30 -and -not $streaming; $i++) {
             Start-Sleep -Seconds 1
@@ -99,13 +98,12 @@ jobs:
           }
           if ($left) { $left | Format-Table ProcessId, ParentProcessId, CommandLine -Wrap; throw "ffmpeg outlived the sender" }
 
-          # Start Menu shortcuts: the toggle one (with its hotkey) starts and then stops the sender.
+          # Start Menu shortcuts (no hotkey): the toggle one starts and then stops the sender.
           $menu = Join-Path ([Environment]::GetFolderPath("Programs")) "Periscope"
           Get-ChildItem $menu | Select-Object -ExpandProperty Name
           $toggle = Join-Path $menu "Periscope - Start or stop sender.lnk"
           $hotkey = (New-Object -ComObject WScript.Shell).CreateShortcut($toggle).Hotkey
-          # Windows may normalize the modifier order, so check each part.
-          foreach ($part in "Ctrl", "Alt", "Shift", "\+P$") { if ($hotkey -notmatch $part) { throw "toggle hotkey is '$hotkey'" } }
+          if ($hotkey) { throw "the toggle shortcut has a hotkey: '$hotkey'" }
           Start-Process -FilePath $toggle
           $up = $false
           for ($i = 0; $i -lt 15 -and -not $up; $i++) { Start-Sleep -Seconds 1; & $exe send status | Out-Null; $up = ($LASTEXITCODE -eq 0) }

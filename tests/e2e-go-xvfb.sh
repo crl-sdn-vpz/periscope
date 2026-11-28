@@ -183,10 +183,24 @@ PERISCOPE_CONFIG="$BAD_CFG" "$P" send status | grep -q "waiting for the viewer" 
 PERISCOPE_CONFIG="$BAD_CFG" "$P" send stop >/dev/null
 
 echo "== stop"
-check "viewer stops"                    view stop
+[[ "$(opacity_of "$app")" == "3435973836" ]] || view mode overlay >/dev/null
+check "stop restores before replying"   bash -c "PERISCOPE_CONFIG='$VIEW_CFG' '$P' stop | grep -q 'back to solid'"
 wait_for 5 bash -c '! pgrep -f "$MPV_RE"' && ok "mpv ended with the viewer" || fail "mpv still running"
 [[ -z "$(opacity_of "$app")" ]] && ok "opacity restored" || fail "opacity not restored"
 check "status says stopped"             bash -c "PERISCOPE_CONFIG='$VIEW_CFG' '$P' status | grep -q 'viewer : stopped'"
+
+echo "== crashed viewer: stop still cleans up"
+view view overlay >/dev/null; sleep 1
+[[ -n "$(opacity_of "$app")" ]] || view mode overlay >/dev/null
+pkill -9 -f '^[^ ]*periscope view --foreground'
+wait_for 5 bash -c '! pgrep -f "$MPV_RE"'
+[[ -n "$(opacity_of "$app")" ]] && ok "window left faded by the crash" || fail "crash setup: window not faded"
+check "stop cleans up without a viewer" bash -c "PERISCOPE_CONFIG='$VIEW_CFG' '$P' stop | grep -q 'was not running; .* back to solid'"
+[[ -z "$(opacity_of "$app")" ]] && ok "opacity restored after a crash" || fail "still $(opacity_of "$app")"
+
+echo "== toggle"
+check "toggle starts the viewer"        bash -c "PERISCOPE_CONFIG='$VIEW_CFG' '$P' toggle && PERISCOPE_CONFIG='$VIEW_CFG' '$P' status | grep -q 'viewer : running'"
+check "toggle stops it"                 bash -c "PERISCOPE_CONFIG='$VIEW_CFG' '$P' toggle && PERISCOPE_CONFIG='$VIEW_CFG' '$P' status | grep -q 'viewer : stopped'"
 
 kill "$WM" 2>/dev/null
 echo
