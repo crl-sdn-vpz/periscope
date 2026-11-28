@@ -35,7 +35,8 @@ type Window struct {
 	ID      uint32
 	Desktop int // -1 = on all desktops: panels, but also ordinary windows (GNOME puts every window
 	// on a non-primary monitor there by default), so it says nothing about the window's kind
-	Rect Rect
+	Rect  Rect
+	Title string // whitespace collapsed
 }
 
 func run(name string, args ...string) (string, error) {
@@ -77,7 +78,11 @@ func parseWmctrl(out string) []Window {
 			}
 		}
 		if ok {
-			ws = append(ws, Window{ID: uint32(id), Desktop: n[0], Rect: Rect{X: n[1], Y: n[2], W: n[3], H: n[4]}})
+			title := ""
+			if len(f) > 7 {
+				title = strings.Join(f[7:], " ")
+			}
+			ws = append(ws, Window{ID: uint32(id), Desktop: n[0], Rect: Rect{X: n[1], Y: n[2], W: n[3], H: n[4]}, Title: title})
 		}
 	}
 	return ws

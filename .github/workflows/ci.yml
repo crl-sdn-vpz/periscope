@@ -115,6 +115,16 @@ jobs:
           $down = $false
           for ($i = 0; $i -lt 15 -and -not $down; $i++) { Start-Sleep -Seconds 1; & $exe send status | Out-Null; $down = ($LASTEXITCODE -ne 0) }
           if (-not $down) { throw "the toggle shortcut did not stop the sender" }
+          # Uninstall: the Start menu entry exists, then one command removes everything (the program
+          # folder a few seconds after exit, since Windows keeps a running exe).
+          if (-not (Test-Path (Join-Path $menu "Periscope - Uninstall.lnk"))) { throw "no uninstall shortcut" }
+          & $exe uninstall --yes
+          if ($LASTEXITCODE -ne 0) { throw "uninstall failed" }
+          Start-Sleep -Seconds 8
+          foreach ($p in "$env:LOCALAPPDATA\periscope", "$env:APPDATA\periscope", $menu) {
+            if (Test-Path $p) { throw "uninstall left $p" }
+          }
+          if ([Environment]::GetEnvironmentVariable("Path", "User") -like "*periscope*") { throw "uninstall left the PATH entry" }
           Stop-Process -Id $listen.Id, $srv.Id -ErrorAction SilentlyContinue
           # The runner exits with the last native exit code: the final `send status` is 1 on purpose.
           exit 0

@@ -3,9 +3,9 @@ package x11
 import "testing"
 
 func TestParseWmctrl(t *testing.T) {
-	out := "0x01e00003  0 10 20 300 200 host Terminal window\n0x00a00002 -1 0 0 2560 1440 host Desktop\ngarbage\n"
+	out := "0x01e00003  0 10 20 300 200 host Terminal  window\n0x00a00002 -1 0 0 2560 1440 host Desktop\ngarbage\n"
 	ws := parseWmctrl(out)
-	want := []Window{{0x01e00003, 0, Rect{10, 20, 300, 200}}, {0x00a00002, -1, Rect{0, 0, 2560, 1440}}}
+	want := []Window{{0x01e00003, 0, Rect{10, 20, 300, 200}, "Terminal window"}, {0x00a00002, -1, Rect{0, 0, 2560, 1440}, "Desktop"}}
 	if len(ws) != 2 || ws[0] != want[0] || ws[1] != want[1] {
 		t.Fatalf("got %+v", ws)
 	}

@@ -122,7 +122,8 @@ $shortcuts = @(
     @{ Name = "Periscope - Start or stop sender"; Target = $conhost; Args = "--headless `"$exe`" send toggle" },
     @{ Name = "Periscope - Start sender"; Target = $conhost; Args = "--headless `"$exe`" send start" },
     @{ Name = "Periscope - Stop sender"; Target = $conhost; Args = "--headless `"$exe`" send stop" },
-    @{ Name = "Periscope - Status"; Target = $ps; Args = "-NoProfile -NoExit -Command `"& '$exe' send status`"" }
+    @{ Name = "Periscope - Status"; Target = $ps; Args = "-NoProfile -NoExit -Command `"& '$exe' send status`"" },
+    @{ Name = "Periscope - Uninstall"; Target = $ps; Args = "-NoProfile -Command `"& '$exe' uninstall; Read-Host 'Press Enter to close'`"" }
 )
 foreach ($sc in $shortcuts) {
     $lnk = $wsh.CreateShortcut((Join-Path $menuDir ($sc.Name + ".lnk")))

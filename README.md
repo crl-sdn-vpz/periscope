@@ -142,6 +142,7 @@ monitor the feed uses: `periscope screens` lists them and `periscope screen next
 |---|---|---|
 | Start or stop the viewer | **Super+Shift+V** | `periscope toggle` · app grid: *Periscope: start or stop viewer* |
 | Open the control menu | | `periscope menu` · app grid: *Periscope menu* |
+| Uninstall | | `periscope uninstall` · app grid: *Periscope: uninstall* |
 | Screenshot → clipboard (image) | **Super+Shift+S** | `periscope shot` · `s` |
 | Screenshot → clipboard (file path) | **Super+Shift+A** | `periscope shot --path` · `a` |
 | Peek | **Super+Shift+P** | `periscope peek` · `p` |
@@ -169,6 +170,7 @@ Nothing runs until you start it, and nothing shows while it runs. Open the Start
 | **Periscope - Stop sender** | stops it |
 | **Periscope - Start or stop sender** | one entry for both |
 | **Periscope - Status** | opens a small window: `streaming to …`, `waiting for the viewer …` or `the sender is not running` |
+| **Periscope - Uninstall** | removes periscope (asks first; see [Uninstall](#uninstall)) |
 
 Right-click an entry → **Pin to Start** or **Pin to taskbar** to keep it at hand. To give one a
 hotkey: right-click → *Open file location* → *Properties* → *Shortcut key*. In a terminal it's the
@@ -258,12 +260,33 @@ responsibly.
 
 ## Uninstall
 
-- **Linux:** `periscope stop`, then remove `~/.local/bin/periscope`, `~/.config/periscope`, and
+One click or one command on each computer. It lists what it will remove and asks before it does
+anything:
+
+| | One click | One command |
+|---|---|---|
+| **Linux** | app grid → **Periscope: uninstall** | `periscope uninstall` |
+| **Windows** | Start menu → **Periscope - Uninstall** | `periscope uninstall` (in PowerShell or a command prompt) |
+
+It stops periscope (your windows go back to solid), then removes the program, its config and
+passphrase, logs, launchers or Start menu entries, the icon, the GNOME hotkeys and the `PATH` entry.
+`--keep-config` keeps your settings for a later reinstall, and `--yes` skips the question (for
+scripts).
+
+It leaves alone what other software may use: mpv and ffmpeg (remove them with your package manager,
+or `winget uninstall Gyan.FFmpeg`) and the firewall rule (`sudo ufw delete allow 9000/udp`).
+
+<details>
+<summary>By hand, if the <code>periscope</code> command is already gone</summary>
+
+- **Linux:** remove `~/.local/bin/periscope`, `~/.config/periscope`,
   `~/.local/share/applications/periscope-*.desktop` and
-  `~/.local/share/icons/hicolor/256x256/apps/periscope.png`. Remove the hotkeys in GNOME Settings.
-- **Windows:** **Periscope - Stop sender**. Then delete `%LOCALAPPDATA%\periscope`,
+  `~/.local/share/icons/hicolor/256x256/apps/periscope.png`, and the `periscope: …` entries in
+  GNOME Settings → Keyboard → Custom Shortcuts.
+- **Windows:** end `periscope.exe` in Task Manager, delete `%LOCALAPPDATA%\periscope`,
   `%APPDATA%\periscope` and the Start menu folder *Periscope*, and remove
   `%LOCALAPPDATA%\periscope\bin` from your user `PATH`.
+</details>
 
 ## Roadmap
 

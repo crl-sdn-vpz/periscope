@@ -65,6 +65,8 @@ internal/sender|viewer  role daemons: supervise ffmpeg/mpv, serve the control so
                         on the feed's monitor, reconciled every 1 s and on _NET_CLIENT_LIST changes.
                         Desktop/panels are skipped by _NET_WM_WINDOW_TYPE, never by desktop -1: GNOME puts
                         every window on a non-primary monitor on all desktops. `periscope windows` explains.
+                        Idle cost matters (it runs all day): one wmctrl per second, the feed found by title
+                        in that list, monitors cached 10 s. Measure before/after when touching it.
 internal/control        one JSON request/response per connection over AF_UNIX (also on Windows 10+)
 internal/supervise      restart with backoff; proc ties children to us (Pdeathsig / kill-on-close job object)
 internal/mpv | x11      mpv args + JSON IPC client (request_id) | wmctrl/xprop/xrandr/xdotool wrappers
@@ -76,6 +78,9 @@ install/install.sh|ps1  release-based installers (SHA256SUMS checked; PERISCOPE_
                         launchers. Restoring opacity sets 0xffffffff then removes it (mutter ignores bare deletes)
 tests/e2e-go-xvfb.sh    Go e2e: real `periscope send` (capture=test) → `periscope view`
 scripts/test-pair.sh    `just test-pair`: hardware test of a checkout (serves dist/ on the LAN, prints the Windows line)
+cmd/periscope/uninstall*.go  `periscope uninstall [--yes] [--keep-config]`: shows the plan, asks, removes. Windows
+                        deletes %LOCALAPPDATA%\periscope after exit (running exe) via a hidden cmd.exe; keeps
+                        mpv/ffmpeg and the firewall rule. tests/installers.sh: install.sh → uninstall round trip
 internal/ui             terminal styling (colors, logo, boxes, status dots); only on a TTY without NO_COLOR, so
                         pipes/tests get the plain text; cmd/periscope/style.go applies it per command
 assets/                 icon.svg (source of truth) → `just icons` → icon-256.png, periscope.ico (shipped in dist/)

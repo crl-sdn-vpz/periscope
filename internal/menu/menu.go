@@ -88,12 +88,16 @@ func Run(title, subtitle string, items []Item, header func() string, refresh tim
 	done := make(chan result, 1) // actions run in the background so quit keys always work
 	tick := time.NewTicker(refresh)
 	defer tick.Stop()
+	last := "" // the frame on screen: unchanged frames aren't written again (no flicker, no output)
 	for {
 		status := header()
+		shown := msg
 		if busy != "" {
-			draw(title, subtitle, items, sel, status, ui.Style(ui.Out, ui.Dim, busy+" ..."))
-		} else {
-			draw(title, subtitle, items, sel, status, msg)
+			shown = ui.Style(ui.Out, ui.Dim, busy+" ...")
+		}
+		if f := frame(title, subtitle, items, sel, status, shown); f != last {
+			fmt.Print(f)
+			last = f
 		}
 		var b []byte
 		select {
@@ -147,7 +151,8 @@ func Run(title, subtitle string, items []Item, header func() string, refresh tim
 	}
 }
 
-func draw(title, subtitle string, items []Item, sel int, status, msg string) {
+// frame renders the whole screen for the current terminal size.
+func frame(title, subtitle string, items []Item, sel int, status, msg string) string {
 	width, height, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		width, height = 80, 24
@@ -172,7 +177,7 @@ func draw(title, subtitle string, items []Item, sel int, status, msg string) {
 		}
 	}
 	// Raw mode doesn't translate \n, so every line ends in \r\n; \x1b[K clears leftovers.
-	fmt.Print("\x1b[H" + strings.Join(lines, "\x1b[K\r\n") + "\x1b[K\x1b[J")
+	return "\x1b[H" + strings.Join(lines, "\x1b[K\r\n") + "\x1b[K\x1b[J"
 }
 
 // layout renders the items grouped by section, in two columns when the terminal is wide enough.

@@ -17,6 +17,37 @@ import (
 
 // ---- monitors ---------------------------------------------------------------------
 
+// monitorTTL bounds how stale the cached monitor layout can be (e.g. after plugging a monitor).
+const monitorTTL = 10 * time.Second
+
+// monitorList returns the monitor layout, from cache when it is fresh (fresh forces a reload).
+func (v *viewer) monitorList(fresh bool) ([]x11.Monitor, error) {
+	v.monMu.Lock()
+	defer v.monMu.Unlock()
+	if fresh || v.monitors == nil || time.Since(v.monAt) > monitorTTL {
+		ms, err := x11.Monitors()
+		if err != nil {
+			return nil, err
+		}
+		v.monitors, v.monAt = ms, time.Now()
+	}
+	return v.monitors, nil
+}
+
+// monitorAt returns monitor n from the cached layout.
+func (v *viewer) monitorAt(n int) (x11.Monitor, error) {
+	ms, err := v.monitorList(false)
+	if err != nil {
+		return x11.Monitor{}, err
+	}
+	for _, m := range ms {
+		if m.Index == n {
+			return m, nil
+		}
+	}
+	return x11.Monitor{}, fmt.Errorf("no monitor %d (there are %d: periscope screens)", n, len(ms))
+}
+
 // screenLabel describes the feed's monitor for status lines.
 func (v *viewer) screenLabel() string {
 	v.mu.Lock()
@@ -25,7 +56,7 @@ func (v *viewer) screenLabel() string {
 	if v.x11err != nil {
 		return fmt.Sprintf("monitor %d", n)
 	}
-	ms, err := x11.Monitors()
+	ms, err := v.monitorList(false)
 	if err != nil {
 		return fmt.Sprintf("monitor %d (%v)", n, err)
 	}
@@ -44,7 +75,7 @@ func (v *viewer) setScreen(arg string) (string, error) {
 	}
 	count := 1
 	if v.x11err == nil {
-		ms, err := x11.Monitors()
+		ms, err := v.monitorList(true) // the user is picking one: read the current layout
 		if err != nil {
 			return "", err
 		}
@@ -134,7 +165,7 @@ func (v *viewer) applyMode(mode string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	mon, err := x11.MonitorAt(v.screen)
+	mon, err := v.monitorAt(v.screen)
 	if err != nil {
 		return "", err
 	}
@@ -263,7 +294,7 @@ func (v *viewer) windowsReport() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	mon, err := x11.MonitorAt(v.screen)
+	mon, err := v.monitorAt(v.screen)
 	if err != nil {
 		return "", err
 	}
@@ -306,12 +337,14 @@ func (v *viewer) applyOpacity(o float64) (int, error) {
 	}
 	var mon x11.Monitor
 	if o < 0.999 { // restoring needs no monitor, so it works even if the monitor setup changed
-		if mon, err = x11.MonitorAt(v.screen); err != nil {
+		if mon, err = v.monitorAt(v.screen); err != nil {
 			return 0, err
 		}
 	}
-	if id, err := x11.FindByName("^" + mpv.Title + "$"); err == nil {
-		v.mpvID = id
+	for _, w := range ws { // the feed's window, from the list in hand (no xdotool per pass)
+		if w.Title == mpv.Title {
+			v.mpvID = w.ID
+		}
 	}
 	seen := map[uint32]bool{}
 	n := 0
@@ -445,7 +478,7 @@ func (v *viewer) setOpacityCmd(arg string) (string, error) {
 		return "", err
 	}
 	v.peekFrom = -1
-	mon, _ := x11.MonitorAt(v.screen)
+	mon, _ := v.monitorAt(v.screen)
 	return fmt.Sprintf("opacity: %.2f", o) + fadedNote(n, o, mon), nil
 }
 
@@ -474,7 +507,7 @@ func (v *viewer) peek() (string, error) {
 	if err := v.overlayOnly(); err != nil {
 		return "", err
 	}
-	mon, _ := x11.MonitorAt(v.screen)
+	mon, _ := v.monitorAt(v.screen)
 	if v.peekFrom >= 0 {
 		restore := v.peekFrom
 		n, err := v.applyOpacity(restore)

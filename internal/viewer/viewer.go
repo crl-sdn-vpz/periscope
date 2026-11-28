@@ -47,6 +47,10 @@ type viewer struct {
 	infos    map[uint32]x11.Info
 	mpvID    uint32
 	cancel   context.CancelFunc
+
+	monMu    sync.Mutex // the monitor layout, cached: xrandr is a process per call
+	monitors []x11.Monitor
+	monAt    time.Time
 }
 
 // Run listens for the sender and serves control requests until ctx is done or "stop" arrives.
@@ -123,9 +127,17 @@ func Run(ctx context.Context, c config.Config, stateDir, mode string) error {
 
 	if v.x11err == nil {
 		// New windows show up through the client list; windows dragged between monitors only
-		// through the periodic pass.
+		// through the periodic pass. Client-list events only wake the loop (a burst, like an app
+		// opening several windows, collapses into one pass).
+		wake := make(chan struct{}, 1)
 		go func() {
-			if err := x11.WatchClientList(ctx, v.reconcile); err != nil && ctx.Err() == nil {
+			notify := func() {
+				select {
+				case wake <- struct{}{}:
+				default:
+				}
+			}
+			if err := x11.WatchClientList(ctx, notify); err != nil && ctx.Err() == nil {
 				v.log.Printf("window watcher stopped: %v", err)
 			}
 		}()
@@ -137,8 +149,9 @@ func Run(ctx context.Context, c config.Config, stateDir, mode string) error {
 				case <-ctx.Done():
 					return
 				case <-t.C:
-					v.reconcile()
+				case <-wake:
 				}
+				v.reconcile()
 			}
 		}()
 	}
