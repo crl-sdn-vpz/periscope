@@ -53,10 +53,11 @@ On the device watching:
   periscope opacity [v|cycle|reset]
   periscope shot [--path|--no-clip]   full-res PNG of the stream -> clipboard (image by default)
   periscope status                viewer and local sender state
-  periscope stop                  stop the viewer and restore window opacity
+  periscope stop                  stop the viewer and make faded windows solid again (also after a crash)
+  periscope toggle                start the viewer if it is stopped, stop it if it runs (for hotkeys/launchers)
   periscope test                  start the viewer and play a local test pattern into it
   periscope pair                  print the one-line install command for the sending device
-  periscope bind-gnome            register GNOME hotkeys (Super+Shift+S/A/P/M/O/N)
+  periscope bind-gnome            register GNOME hotkeys (Super+Shift+V/S/A/P/M/O/N)
 
 Setup:
   periscope config init [--target-host H] [--port N] [--passphrase P]
@@ -103,7 +104,9 @@ func run(ctx context.Context, args []string) (string, error) {
 	case "status":
 		return cmdStatus(), nil
 	case "stop":
-		return callViewer("stop")
+		return cmdStop()
+	case "toggle":
+		return cmdToggle(ctx)
 	case "test":
 		return cmdTest(ctx)
 	case "pair":
@@ -326,6 +329,53 @@ func spawn(dir, name, sockName string, args []string) error {
 		}
 	}
 	return fmt.Errorf("the %s did not come up within 15s (see %s)", name, startLog)
+}
+
+func cmdStop() (string, error) {
+	out, err := callViewer("stop")
+	if err == nil {
+		// Return only once the viewer has exited, so a start right after (toggle, menu) can't race it.
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+			if _, serr := callViewer("status"); serr != nil {
+				return out, nil
+			}
+		}
+		return out, errors.New("the viewer did not exit within 5 s")
+	}
+	if !strings.Contains(err.Error(), "not running") {
+		return out, err
+	}
+	// No viewer: still clean up windows a crashed or killed viewer may have left translucent.
+	c, cerr := loadConfig()
+	if cerr != nil && !errors.Is(cerr, config.ErrNotFound) {
+		return "", cerr
+	}
+	n, rerr := viewer.RestoreWindows(c.View)
+	switch {
+	case rerr != nil:
+		return "", fmt.Errorf("the viewer is not running; restoring windows failed: %w", rerr)
+	case n > 0:
+		return fmt.Sprintf("the viewer was not running; %d window(s) back to solid", n), nil
+	}
+	return "the viewer is not running", nil
+}
+
+func cmdToggle(ctx context.Context) (string, error) {
+	var out, title string
+	var err error
+	if _, serr := callViewer("status"); serr == nil {
+		out, err = cmdStop()
+		title = "periscope viewer stopped"
+	} else {
+		out, err = cmdView(ctx, nil)
+		title = "periscope viewer started"
+	}
+	if err != nil {
+		notify("periscope", err.Error())
+		return out, err
+	}
+	notify(title, out)
+	return out, nil
 }
 
 func cmdScreens() (string, error) {
@@ -565,7 +615,7 @@ func cmdMenu() error {
 		{Key: 's', Label: "Screenshot to clipboard", Run: func() (string, error) { return cmdShot(nil) }},
 		{Key: 'a', Label: "Screenshot, copy path", Run: func() (string, error) { return cmdShot([]string{"--path"}) }},
 		{Key: 'w', Label: "Pair a sending device", Run: cmdPair},
-		{Key: 'x', Label: "Stop viewer", Run: act("stop")},
+		{Key: 'x', Label: "Stop viewer", Run: cmdStop},
 		{Key: 'q', Label: "Quit menu"},
 	}
 	return menu.Run("periscope "+version+" · viewer", items, cmdStatus, 2*time.Second)
@@ -584,6 +634,7 @@ func cmdBindGnome() (string, error) {
 	const schema = "org.gnome.settings-daemon.plugins.media-keys"
 	const base = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings"
 	binds := []struct{ id, name, args, key string }{
+		{"periscope-toggle", "periscope: start or stop the viewer", "toggle", "<Super><Shift>v"},
 		{"periscope-shot", "periscope: screenshot to clipboard", "shot", "<Super><Shift>s"},
 		{"periscope-shotpath", "periscope: screenshot, copy path", "shot --path", "<Super><Shift>a"},
 		{"periscope-peek", "periscope: peek (fade my windows)", "peek", "<Super><Shift>p"},

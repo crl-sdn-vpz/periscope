@@ -133,14 +133,16 @@ func Cardinal(o float64) uint32 {
 	return uint32(o * 0xffffffff)
 }
 
-// SetOpacity sets a window's opacity; 1 removes the property so the compositor draws it opaque.
+// SetOpacity sets a window's opacity. For 1 it first sets the fully opaque value and then removes
+// the property: deleting alone left windows translucent under GNOME (mutter), which reacts to a new
+// value but not reliably to a deletion.
 func SetOpacity(id uint32, o float64) error {
-	if o >= 0.999 {
-		_, err := run("xprop", "-id", hex(id), "-remove", "_NET_WM_WINDOW_OPACITY")
-		return err
-	}
 	_, err := run("xprop", "-id", hex(id), "-f", "_NET_WM_WINDOW_OPACITY", "32c",
 		"-set", "_NET_WM_WINDOW_OPACITY", strconv.FormatUint(uint64(Cardinal(o)), 10))
+	if err != nil || o < 0.999 {
+		return err
+	}
+	_, err = run("xprop", "-id", hex(id), "-remove", "_NET_WM_WINDOW_OPACITY")
 	return err
 }
 

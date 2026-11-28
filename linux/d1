@@ -104,6 +104,8 @@ overlay_wids() {
 set_win_opacity() {
     local wid=$1 o=$2
     if awk -v o="$o" 'BEGIN{exit !(o>=0.999)}'; then
+        # Set fully opaque first: GNOME (mutter) doesn't reliably react to the deletion alone.
+        xprop -id "$wid" -f _NET_WM_WINDOW_OPACITY 32c -set _NET_WM_WINDOW_OPACITY 0xffffffff 2>/dev/null || true
         xprop -id "$wid" -remove _NET_WM_WINDOW_OPACITY 2>/dev/null || true
     else
         xprop -id "$wid" -f _NET_WM_WINDOW_OPACITY 32c -set _NET_WM_WINDOW_OPACITY "$(to_cardinal "$o")" 2>/dev/null || true
