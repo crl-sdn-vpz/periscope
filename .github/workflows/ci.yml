@@ -21,7 +21,9 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q just shellcheck xvfb openbox mpv ffmpeg socat wmctrl xdotool \
             x11-utils x11-apps xfonts-base xclip
+      - run: go version
       - run: just lint
+      - run: just vuln
       - run: just test
       - run: just e2e
       - run: just dist

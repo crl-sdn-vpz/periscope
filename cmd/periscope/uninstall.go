@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/term"
@@ -27,7 +28,10 @@ func cmdUninstall(args []string) (string, error) {
 	if err := fs.Parse(args); err != nil {
 		return "", err
 	}
-	plan, notes := uninstallPlan(*keepConfig)
+	plan, notes, err := uninstallPlan(*keepConfig)
+	if err != nil {
+		return "", err
+	}
 
 	fmt.Println(ui.Style(ui.Out, ui.Bold, "This removes periscope from this computer:"))
 	for _, r := range plan {
@@ -71,6 +75,36 @@ func stopRoles() error {
 		return err
 	}
 	return nil
+}
+
+// ownDir checks that a directory uninstall would delete is unmistakably periscope's: an absolute
+// path named "periscope". It guards against an empty HOME/LOCALAPPDATA (a relative "periscope"
+// in the current directory) and similar surprises.
+func ownDir(p string) error {
+	if !filepath.IsAbs(p) || filepath.Base(p) != "periscope" {
+		return fmt.Errorf("refusing to delete %q: not periscope's own folder", p)
+	}
+	return nil
+}
+
+// configRemoval removes the config: the default periscope folder, or only the file
+// $PERISCOPE_CONFIG names (its folder may be anything, e.g. a project directory).
+func configRemoval() (removal, error) {
+	p, err := configPath()
+	if err != nil {
+		return removal{}, err
+	}
+	if os.Getenv("PERISCOPE_CONFIG") != "" {
+		if !filepath.IsAbs(p) {
+			return removal{}, fmt.Errorf("refusing to delete %q: PERISCOPE_CONFIG must be an absolute path", p)
+		}
+		return removal{"config and passphrase (" + p + ")", func() error { return removePath(p) }}, nil
+	}
+	dir := filepath.Dir(p)
+	if err := ownDir(dir); err != nil {
+		return removal{}, err
+	}
+	return removal{"config and passphrase (" + dir + ")", func() error { return removePath(dir) }}, nil
 }
 
 // removePath deletes a file or directory tree; a missing one is fine.

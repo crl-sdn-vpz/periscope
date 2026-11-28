@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -13,11 +14,14 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/term"
 
 	"github.com/crl-sdn-vpz/periscope/internal/clipboard"
 	"github.com/crl-sdn-vpz/periscope/internal/config"
@@ -75,6 +79,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	args := os.Args[1:]
+	// --pause (last): wait for Enter before exiting, for shortcuts that open a console window.
+	pause := len(args) > 0 && args[len(args)-1] == "--pause"
+	if pause {
+		args = args[:len(args)-1]
+		defer waitForEnter()
+	}
 	out, err := run(ctx, args)
 	if out != "" {
 		cmd, rest := "help", []string(nil)
@@ -89,7 +99,17 @@ func main() {
 			msg = ui.Fail(true, ui.Style(true, ui.Red, msg))
 		}
 		fmt.Fprintln(os.Stderr, msg)
+		if pause {
+			waitForEnter()
+		}
 		os.Exit(1)
+	}
+}
+
+func waitForEnter() {
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		fmt.Print("\nPress Enter to close ")
+		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 	}
 }
 
@@ -665,6 +685,8 @@ func cmdTest(ctx context.Context) (string, error) {
 
 // ---- pairing ----------------------------------------------------------------------
 
+var pairSafe = regexp.MustCompile(`^[A-Za-z0-9._~@+=:,-]+$`)
+
 // lanIP returns the address this machine uses to reach the network (no packet is sent).
 func lanIP() string {
 	c, err := net.Dial("udp", "192.0.2.1:9")
@@ -683,8 +705,10 @@ func cmdPair() (string, error) {
 	if err := c.Validate(); err != nil {
 		return "", err
 	}
-	if strings.ContainsAny(c.Passphrase, `"'`) {
-		return "", errors.New("the passphrase can't contain quotes for the pairing commands; run: periscope config set passphrase <new>")
+	// The commands are pasted into PowerShell, cmd or bash: only characters no shell interprets.
+	if !pairSafe.MatchString(c.Passphrase) {
+		return "", errors.New("the passphrase has characters a shell could interpret ($ ` ' \" % spaces...): " +
+			"set one with letters and digits on both computers: periscope config set passphrase <new>")
 	}
 	ip := lanIP()
 	base := "https://raw.githubusercontent.com/" + repo + "/main/install"

@@ -28,6 +28,10 @@ e2e:
     tests/e2e-go-xvfb.sh
     tests/installers.sh
 
+# Known vulnerabilities in the code and the Go toolchain (govulncheck)
+vuln:
+    go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
+
 # Everything CI and reviewers expect to pass
 check: lint test e2e
 
@@ -49,7 +53,7 @@ dist:
     done
     cp assets/icon-256.png dist/periscope.png
     cp assets/periscope.ico dist/periscope.ico
-    cd dist && sha256sum periscope_* > SHA256SUMS
+    cd dist && sha256sum periscope* > SHA256SUMS
 
 # Hardware test of this checkout: serve dist/ on the LAN, start the viewer, print the Windows command
 test-pair http_port="8000":

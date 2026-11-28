@@ -21,6 +21,7 @@ import (
 	"github.com/crl-sdn-vpz/periscope/internal/control"
 	"github.com/crl-sdn-vpz/periscope/internal/logfile"
 	"github.com/crl-sdn-vpz/periscope/internal/mpv"
+	"github.com/crl-sdn-vpz/periscope/internal/redact"
 	"github.com/crl-sdn-vpz/periscope/internal/srt"
 	"github.com/crl-sdn-vpz/periscope/internal/supervise"
 	"github.com/crl-sdn-vpz/periscope/internal/x11"
@@ -79,11 +80,12 @@ func Run(ctx context.Context, c config.Config, stateDir, mode string) error {
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	secrets := redact.New(c.Passphrase, srt.Escape(c.Passphrase))
 	v := &viewer{
 		cfg:      c.View,
 		port:     c.Port,
 		mpv:      &mpv.Client{Socket: filepath.Join(stateDir, "mpv.sock")},
-		log:      log.New(lf, "", log.LstdFlags),
+		log:      log.New(secrets.Writer(lf), "", log.LstdFlags), // it quotes mpv's output
 		x11err:   x11.Available(),
 		include:  regexp.MustCompile(c.View.OverlayInclude), // validated by ValidateView
 		exclude:  regexp.MustCompile(c.View.OverlayExclude),
@@ -104,13 +106,24 @@ func Run(ctx context.Context, c config.Config, stateDir, mode string) error {
 		return fmt.Errorf("write mpv input.conf: %w", err)
 	}
 	_ = os.Remove(v.mpv.Socket)
-	url := srt.URL("listener", "0.0.0.0", c.Port, c.LatencyMs, c.Passphrase)
-	args := mpv.Args(url, v.mpv.Socket, inputConf, filepath.Join(stateDir, "mpv.log"), c.View.Screen)
+	secretConf := filepath.Join(stateDir, "mpv-secret.conf")
+	if err := os.WriteFile(secretConf, []byte(mpv.SecretConf(c.Passphrase)), 0o600); err != nil {
+		return fmt.Errorf("write mpv options: %w", err)
+	}
+	defer os.Remove(secretConf)
+	mpvLog, err := logfile.Open(filepath.Join(stateDir, "mpv.log"), 1<<20)
+	if err != nil {
+		return err
+	}
+	defer mpvLog.Close()
+	url := srt.Base("listener", "0.0.0.0", c.Port, c.LatencyMs)
+	args := mpv.Args(url, v.mpv.Socket, inputConf, secretConf, c.View.Screen)
 	supErr := make(chan error, 1)
 	go func() {
 		supErr <- supervise.Run(ctx, supervise.Options{
 			Name:       "mpv",
 			Command:    func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, c.View.Mpv, args...) },
+			Stderr:     secrets.Writer(mpvLog),
 			Log:        v.log,
 			MinBackoff: time.Second, MaxBackoff: time.Second,
 		})
@@ -284,7 +297,7 @@ func (v *viewer) shot() (string, error) {
 	if err := v.mpv.Get("width", &w); err != nil {
 		return "", errors.New("no video from the sender yet")
 	}
-	if err := os.MkdirAll(v.cfg.ShotDir, 0o700); err != nil {
+	if err := os.MkdirAll(v.cfg.ShotDir, 0o700); err != nil { // new dirs are private; existing ones are left as they are
 		return "", fmt.Errorf("create shot dir: %w", err)
 	}
 	path := filepath.Join(v.cfg.ShotDir, "periscope-"+time.Now().Format("20060102-150405.000")+".png")
@@ -293,6 +306,7 @@ func (v *viewer) shot() (string, error) {
 	}
 	for i := 0; i < 40; i++ {
 		if st, err := os.Stat(path); err == nil && st.Size() > 0 {
+			_ = os.Chmod(path, 0o600) // a picture of someone's screen: for this user only
 			latest := filepath.Join(v.cfg.ShotDir, "latest.png")
 			_ = os.Remove(latest)
 			if err := os.Symlink(path, latest); err != nil {

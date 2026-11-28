@@ -13,7 +13,7 @@ func TestEscapeMatchesTheBashAndPowerShellEncoders(t *testing.T) {
 
 func TestURL(t *testing.T) {
 	got := URL("caller", "192.168.1.50", 9000, 80, "pass word&x")
-	want := "srt://192.168.1.50:9000?mode=caller&latency=80000&pbkeylen=16&passphrase=pass%20word%26x"
+	want := "srt://192.168.1.50:9000?mode=caller&latency=80000&pbkeylen=16&enforced_encryption=1&passphrase=pass%20word%26x"
 	if got != want {
 		t.Fatalf("URL =\n %s\nwant\n %s", got, want)
 	}

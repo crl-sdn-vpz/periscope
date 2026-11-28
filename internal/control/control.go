@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"time"
@@ -64,7 +65,8 @@ func Serve(ctx context.Context, ln net.Listener, h Handler) {
 func serveConn(ctx context.Context, c net.Conn, h Handler) {
 	defer c.Close()
 	var req Request
-	if err := json.NewDecoder(bufio.NewReader(c)).Decode(&req); err != nil {
+	// Requests are a few words: cap what a client can make us read.
+	if err := json.NewDecoder(bufio.NewReader(io.LimitReader(c, 64<<10))).Decode(&req); err != nil {
 		_ = json.NewEncoder(c).Encode(Response{Error: "bad request: " + err.Error()})
 		return
 	}

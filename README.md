@@ -111,7 +111,8 @@ periscope and keeps your settings.
 <details>
 <summary>Build from source instead</summary>
 
-You need Go 1.24+ and [just](https://github.com/casey/just): `just build` gives you `bin/periscope`.
+You need Go 1.26+ (the `go` command fetches the exact version from `go.mod`) and
+[just](https://github.com/casey/just): `just build` gives you `bin/periscope`.
 At runtime the viewer needs `mpv` (with SRT support), `wmctrl`, `xdotool`, `xprop` and `xrandr`, plus
 `xclip` or `wl-clipboard`. The sender needs `ffmpeg` (with libsrt). Then run `periscope config init`
 on the viewer, and `periscope config init --target-host <viewer-ip> --passphrase <same passphrase>`
@@ -214,18 +215,25 @@ leave them in `overlay_exclude`. The feed shows through while the text stays ful
 ## Security and privacy
 
 - **Encrypted:** the stream uses SRT's built-in AES-128 encryption, keyed from the shared
-  passphrase. A sender with the wrong passphrase can't connect.
+  passphrase, and encryption is enforced: a sender with a wrong or missing passphrase is refused.
 - **Local:** periscope talks directly between your two computers. No relay, cloud service, account
   or telemetry.
-- **Keep the passphrase private:** the config file is readable only by your user. Anyone with the
-  passphrase who can reach the viewer's UDP port can send it a picture; nobody can make the viewer
-  send anything.
+- **Only your network:** the installer opens the viewer's UDP port for the local subnet only, so a
+  laptop that joins a café's Wi-Fi isn't reachable from it.
+- **Keep the passphrase private:** the config file is readable only by your user, logs never contain
+  it, and the viewer keeps it off the process list. Anyone with the passphrase who can reach the
+  viewer's port can show it a picture; nobody can make the viewer send anything.
+- **Verified downloads:** the installers check the binary and the icons against the release's
+  `SHA256SUMS`. Builds use a supported Go version and are scanned with `govulncheck`.
 - **View only:** the viewer never controls the other computer. Screenshots are taken only when you
   ask, and stay on your disk.
 - **Be open about it:** the sender is quiet so it doesn't clutter a screen that people are looking
   at, not so it can hide. Only watch computers you own or have permission to watch, follow your
   workplace's policies, and let the people in a shared session know you follow it from a second
   machine.
+
+The threat model, the known limits (for example, a Linux sender's passphrase is visible to other
+local users in the process list) and how to report a vulnerability are in [SECURITY.md](SECURITY.md).
 
 ## Troubleshooting
 

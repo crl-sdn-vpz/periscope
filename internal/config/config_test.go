@@ -32,6 +32,8 @@ func TestValidation(t *testing.T) {
 		"long passphrase":  func(c *Config) { c.Passphrase = strings.Repeat("x", 80) },
 		"bad port":         func(c *Config) { c.Port = 70000 },
 		"no target":        func(c *Config) { c.Send.TargetHost = "" },
+		"target injects":   func(c *Config) { c.Send.TargetHost = "10.0.0.2:1?passphrase=x&" },
+		"target spaces":    func(c *Config) { c.Send.TargetHost = "10.0.0.2 x" },
 		"bad encoder":      func(c *Config) { c.Send.Encoder = "hevc" },
 		"bad mode":         func(c *Config) { c.View.DefaultMode = "bogus" },
 		"bad opacity":      func(c *Config) { c.View.OpacitySteps = []float64{1.5} },
@@ -42,6 +44,16 @@ func TestValidation(t *testing.T) {
 		mutate(&c)
 		if errors.Join(c.ValidateSend(), c.ValidateView()) == nil {
 			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+func TestTargetHostForms(t *testing.T) {
+	for _, h := range []string{"192.168.1.50", "viewer.local", "my-pc", "[fe80::1]"} {
+		c := valid()
+		c.Send.TargetHost = h
+		if err := c.ValidateSend(); err != nil {
+			t.Errorf("%s rejected: %v", h, err)
 		}
 	}
 }
