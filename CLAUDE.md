@@ -88,6 +88,10 @@ docs/img/               README visuals; `just screenshots` regenerates them from
                         (src/remote-desktop.svg is the made-up sender screen; scripts/term2svg.py renders terminal output)
 ```
 Dependencies: golang.org/x/sys and golang.org/x/term only (approved in ADR 0001). Ask before adding more.
+Toolchain: go.mod pins a supported Go (`toolchain` line; 1.24 is EOL and had reachable stdlib CVEs);
+`just vuln` (govulncheck) runs in CI. Security model and known limits: SECURITY.md — keep it true:
+passphrase never in mpv argv (mpv-secret.conf, 0600) nor in logs/status (internal/redact), SRT with
+enforced_encryption=1, state dir checked private, uninstall deletes only absolute `periscope` paths.
 Keep `CGO_ENABLED=0` cross-compiles working (`just dist`).
 
 ## Runtime state (Linux)
@@ -95,6 +99,7 @@ Keep `CGO_ENABLED=0` cross-compiles working (`just dist`).
 `peek` (stores the pre-peek opacity), `stop` (flag), `input.conf`, `mpv.log`.
 
 ## Conventions
+- Go: `GOTOOLCHAIN=local` breaks the build (go.mod needs 1.26); leave GOTOOLCHAIN at its default (auto).
 - Bash: `set -euo pipefail`, must pass `shellcheck -S warning`. **Watch for SIGPIPE under pipefail.**
   `cmd | head` / `cmd | grep -q` can return 141 and kill the script. Use `|| true` or a here-string.
   This already caused one bug in install.sh.

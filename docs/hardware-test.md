@@ -1,6 +1,9 @@
 <!-- For contributors: how to test a change on a real Windows -> Linux pair before it is released. -->
 # Hardware test of a checkout (no release needed)
 
+> `just test-pair` serves the build over plain HTTP on your LAN, unauthenticated: someone on the same
+> network could swap the download. Use it only on a network you trust.
+
 The Linux viewer builds the release files from a checkout and serves them on your LAN. Both
 machines then install through the same installers a release uses. Any v0.2 viewer or sender
 is stopped and replaced automatically.
@@ -10,7 +13,7 @@ or 11 with winget (it installs ffmpeg if missing).
 
 **1. Linux viewer:** install the build tools once, then start the test:
 ```bash
-sudo snap install go --classic          # Go 1.24+ (Ubuntu's apt Go is too old)
+sudo snap install go --classic          # Go 1.26+ (Ubuntu's apt Go is too old)
 sudo apt install -y git just curl python3
 git clone https://github.com/crl-sdn-vpz/periscope && cd periscope
 just test-pair
