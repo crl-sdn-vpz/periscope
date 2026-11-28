@@ -108,6 +108,11 @@ view opacity 0.8 >/dev/null
 xmessage -geometry 300x100+400+400 app2 & sleep 1.5
 new=$(xdotool search --name '^xmessage$' | grep -v -e "^$app\$" -e "^$right\$" | head -n1)
 [[ -n "$(opacity_of "$new")" ]] && ok "new window auto-faded" || fail "new window not faded"
+# GNOME puts every window on a non-primary monitor on all desktops (_NET_WM_DESKTOP = -1).
+xprop -id "$new" -f _NET_WM_DESKTOP 32c -set _NET_WM_DESKTOP 4294967295; sleep 1.5
+[[ "$(wmctrl -l | awk -v id="$(printf '0x%08x' "$new")" '$1 == id {print $2}')" == -1 ]] && \
+    [[ -n "$(opacity_of "$new")" ]] && ok "all-desktops window on the feed is faded" || fail "all-desktops window: $(opacity_of "$new")"
+check "windows explains each window"    bash -c "PERISCOPE_CONFIG='$VIEW_CFG' '$P' windows | grep -q 'faded to 0.80' && PERISCOPE_CONFIG='$VIEW_CFG' '$P' windows | grep -q 'solid: centered on another monitor'"
 xdotool windowmove "$new" 1600 600; sleep 2
 [[ -z "$(opacity_of "$new")" ]] && ok "window dragged off the feed un-fades" || fail "moved window still $(opacity_of "$new")"
 xdotool windowmove "$new" 400 400; sleep 2
