@@ -20,6 +20,8 @@ import (
 	"github.com/crl-sdn-vpz/periscope/internal/control"
 	"github.com/crl-sdn-vpz/periscope/internal/ffargs"
 	"github.com/crl-sdn-vpz/periscope/internal/logfile"
+	"github.com/crl-sdn-vpz/periscope/internal/redact"
+	"github.com/crl-sdn-vpz/periscope/internal/srt"
 	"github.com/crl-sdn-vpz/periscope/internal/supervise"
 )
 
@@ -60,7 +62,9 @@ func Run(ctx context.Context, c config.Config, stateDir string, logOut io.Writer
 		return err
 	}
 	defer ffLog.Close()
-	lg := log.New(io.MultiWriter(senderLog, logOut), "", log.LstdFlags)
+	// The passphrase is in ffmpeg's URL, so ffmpeg's errors (and the tails quoted from them) carry it.
+	secrets := redact.New(c.Passphrase, srt.Escape(c.Passphrase))
+	lg := log.New(secrets.Writer(io.MultiWriter(senderLog, logOut)), "", log.LstdFlags)
 
 	ffmpeg, err := ResolveFfmpeg(c.Send.Ffmpeg)
 	if err != nil {
@@ -84,7 +88,7 @@ func Run(ctx context.Context, c config.Config, stateDir string, logOut io.Writer
 		supErr <- supervise.Run(ctx, supervise.Options{
 			Name:       "ffmpeg",
 			Command:    func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, ffmpeg, args...) },
-			Stderr:     ffLog,
+			Stderr:     secrets.Writer(ffLog),
 			Log:        lg,
 			MinBackoff: 2 * time.Second, MaxBackoff: 15 * time.Second, ResetAfter: 20 * time.Second,
 			OnStart: func() {
@@ -94,7 +98,7 @@ func Run(ctx context.Context, c config.Config, stateDir string, logOut io.Writer
 			},
 			OnExit: func(err error, tail string, retryIn time.Duration) {
 				st.mu.Lock()
-				st.started, st.lastErr, st.retryAt = time.Time{}, strings.TrimSpace(fmt.Sprint(err, " ", tail)), time.Now().Add(retryIn)
+				st.started, st.lastErr, st.retryAt = time.Time{}, secrets.String(strings.TrimSpace(fmt.Sprint(err, " ", tail))), time.Now().Add(retryIn)
 				st.restarts++
 				st.mu.Unlock()
 			},

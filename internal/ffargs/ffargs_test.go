@@ -14,7 +14,8 @@ func cfg() config.Config {
 	return c
 }
 
-// The default Windows command must stay identical to what windows/sender.ps1 (Build-Args) produces.
+// The default Windows command must stay what windows/sender.ps1 (Build-Args) produces, except that
+// the binary also enforces encryption (enforced_encryption=1).
 func TestWindowsDefaultMatchesPowerShellSender(t *testing.T) {
 	got, err := Build(cfg(), "windows")
 	if err != nil {
@@ -25,7 +26,7 @@ func TestWindowsDefaultMatchesPowerShellSender(t *testing.T) {
 		"-vf format=yuv444p -an " +
 		"-c:v libx264 -preset ultrafast -tune zerolatency -crf 18 -g 60 -bf 0 " +
 		"-f mpegts -flush_packets 1 -muxdelay 0 -metadata service_name=periscope " +
-		"srt://192.168.1.50:9000?mode=caller&latency=80000&pbkeylen=16&passphrase=abcdefghij0123456789&connect_timeout=3000"
+		"srt://192.168.1.50:9000?mode=caller&latency=80000&pbkeylen=16&enforced_encryption=1&passphrase=abcdefghij0123456789&connect_timeout=3000"
 	if s := strings.Join(got, " "); s != want {
 		t.Fatalf("got\n %s\nwant\n %s", s, want)
 	}

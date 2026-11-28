@@ -15,10 +15,14 @@ import (
 // Title is the fixed window title used to find mpv's window.
 const Title = "PERISCOPE-VIEW"
 
-// Args returns mpv's arguments for a low-latency, input-less, fullscreen SRT listener.
-func Args(url, ipcSocket, inputConf, logFile string, screen int) []string {
+// Args returns mpv's arguments for a low-latency, input-less, fullscreen SRT listener. url must not
+// carry the passphrase (the command line is world-readable): secretConf, from SecretConf, holds it.
+// The user's mpv config and scripts are not loaded: they would run inside the process that decodes a
+// network stream, and could change what periscope relies on.
+func Args(url, ipcSocket, inputConf, secretConf string, screen int) []string {
 	s := strconv.Itoa(screen)
 	return []string{
+		"--no-config", "--load-scripts=no", "--ytdl=no", "--include=" + secretConf,
 		url,
 		"--title=" + Title, "--x11-name=periscope", "--wayland-app-id=periscope",
 		"--profile=low-latency", "--untimed", "--no-cache",
@@ -30,8 +34,15 @@ func Args(url, ipcSocket, inputConf, logFile string, screen int) []string {
 		"--no-input-default-bindings", "--input-conf=" + inputConf,
 		"--input-ipc-server=" + ipcSocket,
 		"--screenshot-format=png", "--screenshot-png-compression=1", "--screenshot-tag-colorspace=no",
-		"--msg-level=all=warn", "--log-file=" + logFile,
+		"--msg-level=all=warn", // to stderr, which periscope logs through a redactor
 	}
+}
+
+// SecretConf is the content of the options file that gives mpv's SRT layer the passphrase.
+// %N% is mpv's length-prefixed quoting, so any character in the passphrase is safe.
+func SecretConf(passphrase string) string {
+	v := "passphrase=" + passphrase
+	return fmt.Sprintf("stream-lavf-o-append=%%%d%%%s\n", len(v), v)
 }
 
 // InputConf disables every key except fullscreen, so stray keys can't close the feed.

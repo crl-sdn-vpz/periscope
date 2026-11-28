@@ -6,10 +6,18 @@ import (
 	"strings"
 )
 
-// URL returns an srt:// URL with AES-128 encryption. mode is "listener" (viewer) or "caller" (sender).
+// Base returns an srt:// URL without the passphrase: AES-128, and encryption enforced, so a peer
+// without the passphrase (or with another one) is refused rather than talked to in clear.
+// mode is "listener" (viewer) or "caller" (sender).
+func Base(mode, host string, port, latencyMs int) string {
+	return fmt.Sprintf("srt://%s:%d?mode=%s&latency=%d&pbkeylen=16&enforced_encryption=1",
+		host, port, mode, latencyMs*1000)
+}
+
+// URL is Base with the passphrase in it. It ends up in the process's command line: prefer passing
+// the passphrase out of band where the program allows it (the viewer gives mpv an options file).
 func URL(mode, host string, port, latencyMs int, passphrase string) string {
-	return fmt.Sprintf("srt://%s:%d?mode=%s&latency=%d&pbkeylen=16&passphrase=%s",
-		host, port, mode, latencyMs*1000, Escape(passphrase))
+	return Base(mode, host, port, latencyMs) + "&passphrase=" + Escape(passphrase)
 }
 
 // Escape percent-encodes everything except RFC 3986 unreserved characters, like .NET's
