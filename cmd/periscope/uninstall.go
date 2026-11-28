@@ -67,7 +67,7 @@ func stopRoles() error {
 	if _, err := cmdStop(); err != nil && !strings.Contains(err.Error(), "not running") {
 		return err
 	}
-	if _, err := callSender("stop"); err != nil && !strings.Contains(err.Error(), "not running") {
+	if _, err := stopSender(); err != nil && !strings.Contains(err.Error(), "not running") {
 		return err
 	}
 	return nil

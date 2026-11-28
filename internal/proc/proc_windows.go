@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -52,6 +53,16 @@ func tie(cmd *exec.Cmd) error {
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	return nil
+}
+
+func waitExit(pid int, timeout time.Duration) bool {
+	h, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		return true // no such process (anymore)
+	}
+	defer windows.CloseHandle(h)
+	ev, err := windows.WaitForSingleObject(h, uint32(timeout.Milliseconds()))
+	return err == nil && ev == windows.WAIT_OBJECT_0
 }
 
 func detach(cmd *exec.Cmd) {
