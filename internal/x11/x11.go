@@ -33,8 +33,9 @@ func Available() error {
 // Window is a managed top-level window and its frame geometry.
 type Window struct {
 	ID      uint32
-	Desktop int // -1 = sticky (desktop, panels, docks)
-	Rect    Rect
+	Desktop int // -1 = on all desktops: panels, but also ordinary windows (GNOME puts every window
+	// on a non-primary monitor there by default), so it says nothing about the window's kind
+	Rect Rect
 }
 
 func run(name string, args ...string) (string, error) {
@@ -82,16 +83,48 @@ func parseWmctrl(out string) []Window {
 	return ws
 }
 
-// Class returns the WM_CLASS value line of a window ("" if it has none).
-func Class(id uint32) string {
-	out, err := run("xprop", "-id", hex(id), "WM_CLASS")
+// Info is what decides whether a window may be faded.
+type Info struct {
+	Class string   // WM_CLASS value, e.g. `"kitty", "kitty"`
+	Types []string // _NET_WM_WINDOW_TYPE without the prefix, e.g. NORMAL, DOCK, DESKTOP
+}
+
+// Background reports whether the window is part of the desktop itself (wallpaper/icons, panels, docks).
+func (i Info) Background() bool {
+	for _, t := range i.Types {
+		if t == "DESKTOP" || t == "DOCK" {
+			return true
+		}
+	}
+	return false
+}
+
+// WindowInfo reads a window's class and type in one xprop call.
+func WindowInfo(id uint32) Info {
+	out, err := run("xprop", "-id", hex(id), "WM_CLASS", "_NET_WM_WINDOW_TYPE")
 	if err != nil {
-		return ""
+		return Info{}
 	}
-	if _, v, ok := strings.Cut(out, "="); ok {
-		return strings.TrimSpace(v)
+	return parseInfo(out)
+}
+
+func parseInfo(out string) Info {
+	var info Info
+	for _, line := range strings.Split(out, "\n") {
+		name, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue // e.g. "_NET_WM_WINDOW_TYPE:  not found."
+		}
+		switch {
+		case strings.HasPrefix(name, "WM_CLASS"):
+			info.Class = strings.TrimSpace(value)
+		case strings.HasPrefix(name, "_NET_WM_WINDOW_TYPE"):
+			for _, t := range strings.Split(value, ",") {
+				info.Types = append(info.Types, strings.TrimPrefix(strings.TrimSpace(t), "_NET_WM_WINDOW_TYPE_"))
+			}
+		}
 	}
-	return ""
+	return info
 }
 
 // Cardinal converts an opacity in [0,1] to the _NET_WM_WINDOW_OPACITY value.

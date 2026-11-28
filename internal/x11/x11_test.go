@@ -28,6 +28,17 @@ func TestParseMonitors(t *testing.T) {
 	}
 }
 
+func TestParseInfo(t *testing.T) {
+	info := parseInfo("WM_CLASS(STRING) = \"kitty\", \"kitty\"\n_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_DOCK, _NET_WM_WINDOW_TYPE_NORMAL\n")
+	if info.Class != `"kitty", "kitty"` || len(info.Types) != 2 || info.Types[0] != "DOCK" || !info.Background() {
+		t.Fatalf("got %+v", info)
+	}
+	info = parseInfo("WM_CLASS(STRING) = \"xmessage\", \"Xmessage\"\n_NET_WM_WINDOW_TYPE:  not found.\n")
+	if info.Class == "" || len(info.Types) != 0 || info.Background() {
+		t.Fatalf("no type: %+v", info)
+	}
+}
+
 func TestCardinalMatchesBashViewer(t *testing.T) {
 	// e2e-xvfb.sh expects 3435973836 for 0.80 (the bash viewer's awk output).
 	if got := Cardinal(0.80); got != 3435973836 {

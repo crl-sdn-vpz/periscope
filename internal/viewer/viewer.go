@@ -44,7 +44,7 @@ type viewer struct {
 	opacity  float64 // overlay opacity for windows on the feed's monitor (1 = not faded)
 	peekFrom float64 // opacity to restore when peek ends; negative when not peeking
 	faded    map[uint32]float64
-	classes  map[uint32]string
+	infos    map[uint32]x11.Info
 	mpvID    uint32
 	cancel   context.CancelFunc
 }
@@ -87,7 +87,7 @@ func Run(ctx context.Context, c config.Config, stateDir, mode string) error {
 		screen:   c.View.Screen,
 		opacity:  1,
 		faded:    map[uint32]float64{},
-		classes:  map[uint32]string{},
+		infos:    map[uint32]x11.Info{},
 		peekFrom: -1,
 		cancel:   cancel,
 	}
@@ -193,6 +193,8 @@ func (v *viewer) handle(_ context.Context, r control.Request) (string, error) {
 		return v.setMode(arg)
 	case "peek":
 		return v.peek()
+	case "windows":
+		return v.windowsReport()
 	case "screen":
 		if arg == "index" { // the monitor number, for `periscope screen --default`
 			v.mu.Lock()

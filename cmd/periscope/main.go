@@ -47,6 +47,7 @@ On the device watching:
   periscope menu                  interactive control: arrows + Enter, or one key per action
   periscope mode <mode|cycle>     change layout
   periscope screens               list monitors (the feed's is marked)
+  periscope windows               each window and whether overlay fades it (and why not)
   periscope screen [n|next] [--default]   move the feed to monitor n; --default also saves it
   periscope peek                  toggle: fade your windows so the stream is readable
   periscope opacity [v|cycle|reset]
@@ -93,6 +94,8 @@ func run(ctx context.Context, args []string) (string, error) {
 		return callViewer(cmd, rest...)
 	case "screens":
 		return cmdScreens()
+	case "windows":
+		return callViewer("windows")
 	case "screen":
 		return cmdScreen(rest)
 	case "shot", "snap":

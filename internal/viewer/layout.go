@@ -226,21 +226,69 @@ func (v *viewer) cycleMode() (string, error) {
 
 // ---- opacity ----------------------------------------------------------------------
 
-// eligible reports whether a window may be faded: managed, not sticky (desktop, panels, docks),
-// not the feed itself, and matching the class filters. Callers hold v.mu.
-func (v *viewer) eligible(w x11.Window) bool {
-	if w.Desktop == -1 || w.ID == v.mpvID {
-		return false
+// skipReason says why a window is never faded ("" if it may be): the feed itself, the desktop or a
+// panel/dock (by window type: the desktop number can't tell, since GNOME puts every window on a
+// non-primary monitor on all desktops), or the class filters. Callers hold v.mu.
+func (v *viewer) skipReason(w x11.Window) string {
+	if w.ID == v.mpvID {
+		return "the feed"
 	}
-	class, ok := v.classes[w.ID]
+	info, ok := v.infos[w.ID]
 	if !ok {
-		class = x11.Class(w.ID)
-		v.classes[w.ID] = class
+		info = x11.WindowInfo(w.ID)
+		v.infos[w.ID] = info
 	}
-	if v.cfg.OverlayInclude != "" && !v.include.MatchString(class) {
-		return false
+	switch {
+	case info.Background():
+		return "desktop/panel (" + strings.Join(info.Types, ",") + ")"
+	case v.cfg.OverlayInclude != "" && !v.include.MatchString(info.Class):
+		return "not in view.overlay_include"
+	case v.cfg.OverlayExclude != "" && v.exclude.MatchString(info.Class):
+		return "in view.overlay_exclude"
 	}
-	return v.cfg.OverlayExclude == "" || !v.exclude.MatchString(class)
+	return ""
+}
+
+func (v *viewer) eligible(w x11.Window) bool { return v.skipReason(w) == "" }
+
+// windowsReport lists every managed window and what fading does with it, for `periscope windows`.
+func (v *viewer) windowsReport() (string, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.x11err != nil {
+		return "", v.x11err
+	}
+	ws, err := x11.Windows()
+	if err != nil {
+		return "", err
+	}
+	mon, err := x11.MonitorAt(v.screen)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "feed on monitor %s, mode %s, overlay opacity %.2f\n", mon, v.mode, v.opacity)
+	fmt.Fprintf(&b, "%-10s %4s %-22s %-28s %s\n", "window", "desk", "geometry", "class", "fading")
+	for _, w := range ws {
+		verdict := v.skipReason(w)
+		switch {
+		case verdict != "":
+			verdict = "skipped: " + verdict
+		case !mon.Rect.Contains(w.Rect.Center()):
+			verdict = "solid: centered on another monitor"
+		case v.opacity >= 0.999:
+			verdict = "solid: not in overlay mode"
+		default:
+			verdict = fmt.Sprintf("faded to %.2f", v.opacity)
+		}
+		class := v.infos[w.ID].Class
+		if len(class) > 28 {
+			class = class[:27] + "~"
+		}
+		fmt.Fprintf(&b, "0x%08x %4d %-22s %-28s %s\n", w.ID, w.Desktop,
+			fmt.Sprintf("%dx%d+%d+%d", w.Rect.W, w.Rect.H, w.Rect.X, w.Rect.Y), class, verdict)
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
 }
 
 // applyOpacity fades the eligible windows centered on the feed's monitor to o and un-fades the
@@ -297,9 +345,9 @@ func (v *viewer) applyOpacity(o float64) (int, error) {
 			delete(v.faded, id)
 		}
 	}
-	for id := range v.classes {
+	for id := range v.infos {
 		if !seen[id] {
-			delete(v.classes, id)
+			delete(v.infos, id)
 		}
 	}
 	v.opacity = o

@@ -322,8 +322,7 @@ line. Expected output: `Downloading`, `Installed`, `Installing ffmpeg` (first ti
 `Config`, `Registering autostart`, `Starting the sender`, then `sender : connecting ...` or
 `sender : streaming ...`, and `Done.` Within about 10 s the Linux screen shows the Windows desktop.
 You can close PowerShell now: the sender runs hidden (a logon task) and never needs a terminal.
-Day to day, use **Ctrl+Alt+Shift+P** to start/stop it, or the **Start menu > Periscope** shortcuts
-(Start or stop, Start, Stop, Status).
+See "Start and stop the sender on Windows" below for day-to-day use.
 
 **3. Linux:** press **Ctrl+C** in the `just test-pair` terminal. That only stops the download
 server; the viewer keeps running.
@@ -338,6 +337,8 @@ server; the viewer keeps running.
       (opacity), `s` (shot), `q`. Each action answers below the menu; `q` / Esc / Ctrl+C always quit.
 - [ ] Monitors: `periscope screens` lists them and marks the feed's; `periscope screen next` moves the
       feed; `periscope screen 1 --default` keeps it on monitor 1 from now on.
+- [ ] With the feed on your **second** monitor (`periscope screen 1`), windows there fade too
+      (`periscope windows` shows `faded to 0.80` for them).
 - [ ] Overlay: your Linux windows **on the feed's monitor** turn translucent (windows on other monitors
       stay solid), also newly opened ones and ones you drag onto it. `p` (peek) makes them almost
       invisible and back; the reply says how many windows changed.
@@ -347,7 +348,7 @@ server; the viewer keeps running.
 - [ ] Windows `periscope.exe send stop` → Linux status says `waiting for the sender`, and `ffmpeg.exe`
       is gone from Task Manager.
 - [ ] Windows **Ctrl+Alt+Shift+P** stops the sender; pressing it again starts it (or use Start menu >
-      Periscope). "Periscope - Status" shows the state.
+      Periscope). "Periscope - Status" shows the state. See "Start and stop the sender on Windows".
 - [ ] Windows `Start-ScheduledTask -TaskName PeriscopeSender` → the stream is back within ~10 s.
 - [ ] Linux `periscope stop`, then `periscope view` → the stream comes back on its own.
 - [ ] Sign out of Windows and back in (autostart) → the stream comes back.
@@ -369,7 +370,27 @@ Get-Content "$p\sender.log" -Tail 30; Get-Content "$p\ffmpeg.log" -Tail 30
 | `sender.log` shows `ddagrab` / `No such filter` | Old ffmpeg: `winget upgrade Gyan.FFmpeg`, or `periscope.exe config set send.capture gdigrab`. |
 | Linux stays on `waiting for the sender` | UDP 9000 is blocked on Linux (`sudo ufw allow 9000/udp`), or the sender points at another IP (`periscope.exe config get send.target_host`). |
 | Overlay/split do nothing | You're on Wayland. Log into the Xorg session. |
-| Opacity/peek seem to do nothing | They only touch windows on the feed's monitor, and only in overlay mode; the reply says how many windows changed. Move a window onto the feed, or the feed where you work: `periscope screen next`. Terminals listed in `view.overlay_exclude` (kitty, Alacritty, wezterm) keep their own transparency. |
+| Opacity/peek seem to do nothing | Run `periscope windows`: it lists every window and whether it is faded, solid (on another monitor) or skipped (and why). Fading only touches windows centered on the feed's monitor, in overlay mode. Terminals in `view.overlay_exclude` (kitty, Alacritty, wezterm) keep their own transparency. |
+
+### Start and stop the sender on Windows
+
+After the install, nothing needs a terminal. The sender starts by itself at every logon, hidden:
+no window, no taskbar button, no tray icon.
+
+| To | Do this |
+|---|---|
+| Start or stop it | Press **Ctrl+Alt+Shift+P** anywhere. Press it again to switch back. |
+| Same, from the Start menu | Start menu → type **Periscope** → **Periscope - Start or stop sender** |
+| Only start / only stop | Start menu → **Periscope - Start sender** / **Periscope - Stop sender** |
+| See whether it runs | Start menu → **Periscope - Status** (opens a small window: `streaming to ...`, `waiting for the viewer ...` or `the sender is not running`; close it when done) |
+| Pin them | Right-click a Periscope shortcut → **Pin to Start** or **Pin to taskbar** |
+
+The hotkey and shortcuts don't show anything when they act. Check with the Status shortcut, or
+watch the Linux screen: the feed freezes on the last frame and `periscope status` says
+`waiting for the sender` when the sender stops.
+
+If Ctrl+Alt+Shift+P does nothing right after the first install: Windows may only pick up the hotkey
+of a new Start menu shortcut after you sign out and back in. Until then, use the Start menu entry.
 
 **Go back to v0.2:** Windows `periscope.exe send stop`, then
 `Unregister-ScheduledTask -TaskName PeriscopeSender -Confirm:$false`; Linux `periscope stop`. Then

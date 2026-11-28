@@ -60,7 +60,9 @@ internal/config         JSON config (os.UserConfigDir()/periscope/config.json or
 internal/ffargs         sender ffmpeg args; golden test pins parity with windows/sender.ps1 Build-Args
 internal/sender|viewer  role daemons: supervise ffmpeg/mpv, serve the control socket (send.sock / view.sock)
                         viewer/layout.go: modes, feed monitor (`screen`), opacity only for windows centered
-                        on the feed's monitor, reconciled every 1 s and on _NET_CLIENT_LIST changes
+                        on the feed's monitor, reconciled every 1 s and on _NET_CLIENT_LIST changes.
+                        Desktop/panels are skipped by _NET_WM_WINDOW_TYPE, never by desktop -1: GNOME puts
+                        every window on a non-primary monitor on all desktops. `periscope windows` explains.
 internal/control        one JSON request/response per connection over AF_UNIX (also on Windows 10+)
 internal/supervise      restart with backoff; proc ties children to us (Pdeathsig / kill-on-close job object)
 internal/mpv | x11      mpv args + JSON IPC client (request_id) | wmctrl/xprop/xrandr/xdotool wrappers
