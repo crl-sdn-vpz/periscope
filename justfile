@@ -20,12 +20,13 @@ test:
 lint:
     test -z "$(gofmt -l .)" || { gofmt -l .; echo "run: gofmt -w ."; exit 1; }
     for os in linux windows darwin; do GOOS=$os go vet ./...; done
-    shellcheck -S warning linux/d1 linux/install.sh install/install.sh scripts/test-pair.sh scripts/make-icons.sh scripts/make-screenshots.sh tests/e2e-xvfb.sh tests/e2e-go-xvfb.sh
+    shellcheck -S warning linux/d1 linux/install.sh install/install.sh scripts/test-pair.sh scripts/make-icons.sh scripts/make-screenshots.sh tests/installers.sh tests/e2e-xvfb.sh tests/e2e-go-xvfb.sh
 
 # End-to-end tests on a virtual X display (deps: see README > Development)
 e2e:
     tests/e2e-xvfb.sh
     tests/e2e-go-xvfb.sh
+    tests/installers.sh
 
 # Everything CI and reviewers expect to pass
 check: lint test e2e

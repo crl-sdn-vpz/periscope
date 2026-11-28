@@ -121,6 +121,16 @@ Icon=$icon
 Terminal=false
 Categories=Utility;
 DESKTOP
+    cat > "$apps/periscope-uninstall.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Periscope: uninstall
+Comment=Remove periscope from this computer (asks first)
+Exec=bash -c "$p uninstall; read -r -p 'Press Enter to close ' x"
+Icon=$icon
+Terminal=true
+Categories=Utility;
+DESKTOP
     cat > "$apps/periscope-menu.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
@@ -131,7 +141,7 @@ Icon=$icon
 Terminal=true
 Categories=Utility;
 DESKTOP
-    step "Added app launchers: 'Periscope: start or stop viewer' and 'Periscope menu'"
+    step "Added app launchers: 'Periscope: start or stop viewer', 'Periscope menu', 'Periscope: uninstall'"
     # stdin is this script when piped from curl, so the question goes to the terminal.
     if [[ "${XDG_CURRENT_DESKTOP:-}" == *GNOME* ]] && { : </dev/tty; } 2>/dev/null; then
         read -r -p "Register GNOME hotkeys (Super+Shift+V/S/A/P/M/O/N)? [Y/n] " a </dev/tty

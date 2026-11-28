@@ -65,6 +65,7 @@ Setup:
   periscope config init [--target-host H] [--port N] [--passphrase P]
   periscope config get <key> | set <key> <value>   e.g. set send.encoder nvenc
   periscope config show [--reveal] | path
+  periscope uninstall [--yes] [--keep-config]   remove periscope from this computer
   periscope version
 
 Config: $PERISCOPE_CONFIG or %s
@@ -130,6 +131,8 @@ func run(ctx context.Context, args []string) (string, error) {
 		return cmdBindGnome()
 	case "logs":
 		return cmdLogs(ctx, rest)
+	case "uninstall":
+		return cmdUninstall(rest)
 	case "version", "-v", "--version":
 		return version, nil
 	case "help", "-h", "--help":
@@ -427,7 +430,11 @@ func cmdStop() (string, error) {
 	if !strings.Contains(err.Error(), "not running") {
 		return out, err
 	}
-	// No viewer: still clean up windows a crashed or killed viewer may have left translucent.
+	// No viewer: still clean up windows a crashed or killed viewer may have left translucent
+	// (only where periscope can control windows: not on Windows, Wayland or without a display).
+	if x11.Available() != nil {
+		return "the viewer is not running", nil
+	}
 	c, cerr := loadConfig()
 	if cerr != nil && !errors.Is(cerr, config.ErrNotFound) {
 		return "", cerr

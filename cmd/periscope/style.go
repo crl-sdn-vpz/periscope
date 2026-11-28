@@ -30,6 +30,11 @@ func style(cmd string, rest []string, out string) string {
 		return styleUsage(out)
 	case "logs":
 		return out // already colored per line
+	case "uninstall":
+		if out == "periscope is uninstalled" {
+			return ui.OK(true, out)
+		}
+		return out
 	case "view", "start", "mode", "peek", "opacity", "screen", "stop", "toggle", "shot", "snap", "bind-gnome":
 		return ui.OK(true, out)
 	case "config":
