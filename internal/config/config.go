@@ -62,6 +62,9 @@ var (
 
 const placeholderPassphrase = "change-me"
 
+// hostRe accepts a host name, an IPv4 address or a bracketed IPv6 address.
+var hostRe = regexp.MustCompile(`^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}[A-Za-z0-9])?)*|\[[0-9A-Fa-f:.]+\])$`)
+
 // Default returns a config with every field set; Passphrase is a placeholder that Validate rejects.
 func Default() Config {
 	home, _ := os.UserHomeDir()
@@ -157,6 +160,9 @@ func (c Config) ValidateSend() error {
 	s := c.Send
 	if s.TargetHost == "" {
 		return errors.New("send.target_host is empty: set it to the viewer's LAN IP")
+	}
+	if !hostRe.MatchString(s.TargetHost) { // it goes into the SRT URL: no room for extra options
+		return fmt.Errorf("send.target_host %q must be a host name or an IP address", s.TargetHost)
 	}
 	if !slices.Contains(Encoders, s.Encoder) {
 		return fmt.Errorf("send.encoder %q must be one of %s", s.Encoder, strings.Join(Encoders, ", "))

@@ -13,8 +13,11 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-func uninstallPlan(keepConfig bool) ([]removal, []string) {
+func uninstallPlan(keepConfig bool) ([]removal, []string, error) {
 	local := filepath.Join(os.Getenv("LOCALAPPDATA"), "periscope")
+	if err := ownDir(local); err != nil { // an empty LOCALAPPDATA would make this relative
+		return nil, nil, err
+	}
 	bin := filepath.Join(local, "bin")
 	plan := []removal{{"stop the sender", stopRoles}}
 	if exec.Command("schtasks", "/Query", "/TN", "PeriscopeSender").Run() == nil {
@@ -24,22 +27,23 @@ func uninstallPlan(keepConfig bool) ([]removal, []string) {
 	}
 	if programs, err := windows.KnownFolderPath(windows.FOLDERID_Programs, 0); err == nil {
 		menu := filepath.Join(programs, "Periscope")
-		if exists(menu) {
+		if filepath.IsAbs(menu) && exists(menu) {
 			plan = append(plan, removal{"the Start menu folder Periscope", func() error { return removePath(menu) }})
 		}
 	}
 	plan = append(plan, removal{bin + " from your PATH", func() error { return removeFromUserPath(bin) }})
 	if !keepConfig {
-		if p, err := configPath(); err == nil {
-			dir := filepath.Dir(p)
-			plan = append(plan, removal{"config and passphrase (" + dir + ")", func() error { return removePath(dir) }})
+		r, err := configRemoval()
+		if err != nil {
+			return nil, nil, err
 		}
+		plan = append(plan, r)
 	}
 	plan = append(plan, removal{"the program, logs and older versions (" + local + ")", func() error {
 		return removeAfterExit(local)
 	}})
 	notes := []string{"Kept: ffmpeg (installed with winget; remove it with: winget uninstall Gyan.FFmpeg)."}
-	return plan, notes
+	return plan, notes, nil
 }
 
 // removeFromUserPath drops dir from the user's PATH (HKCU\Environment) and tells running programs.

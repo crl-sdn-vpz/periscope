@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,10 +13,13 @@ import (
 	"github.com/crl-sdn-vpz/periscope/internal/paths"
 )
 
-func uninstallPlan(keepConfig bool) ([]removal, []string) {
-	home, _ := os.UserHomeDir()
+func uninstallPlan(keepConfig bool) ([]removal, []string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil || !filepath.IsAbs(home) {
+		return nil, nil, errors.New("HOME is not set to an absolute path: nothing removed")
+	}
 	data := os.Getenv("XDG_DATA_HOME")
-	if data == "" {
+	if !filepath.IsAbs(data) {
 		data = filepath.Join(home, ".local", "share")
 	}
 	plan := []removal{{"stop the viewer and the sender (windows back to solid)", stopRoles}}
@@ -43,14 +47,15 @@ func uninstallPlan(keepConfig bool) ([]removal, []string) {
 			return nil
 		}})
 	}
-	if dir, err := paths.StateDir(); err == nil {
+	if dir, err := paths.StateDir(); err == nil && ownDir(dir) == nil {
 		plan = append(plan, removal{"logs and runtime files (" + dir + ")", func() error { return removePath(dir) }})
 	}
 	if !keepConfig {
-		if p, err := configPath(); err == nil {
-			dir := filepath.Dir(p)
-			plan = append(plan, removal{"config and passphrase (" + dir + ")", func() error { return removePath(dir) }})
+		r, err := configRemoval()
+		if err != nil {
+			return nil, nil, err
 		}
+		plan = append(plan, r)
 	}
 	for _, b := range []string{filepath.Join(home, ".local", "bin", "periscope"), filepath.Join(home, ".local", "bin", "d1")} {
 		if exists(b) {
@@ -63,9 +68,10 @@ func uninstallPlan(keepConfig bool) ([]removal, []string) {
 	}
 	notes := []string{
 		"Kept: mpv, ffmpeg and the other system packages the installer added (other apps may use them).",
-		"Kept: the firewall rule, if the installer added one: sudo ufw delete allow " + port + "/udp",
+		"Kept: the firewall rule for UDP " + port + ", if the installer added one: sudo ufw status numbered,",
+		"      then sudo ufw delete <number of the periscope rule>",
 	}
-	return plan, notes
+	return plan, notes, nil
 }
 
 // removeGnomeBindings drops periscope's entries (also the v0.2 d1 ones, same ids) from GNOME's
