@@ -49,6 +49,7 @@ jobs:
         run: |
           mkdir dist
           CGO_ENABLED=0 go build -ldflags "-X main.version=ci" -o dist/periscope_windows_amd64.exe ./cmd/periscope
+          cp assets/periscope.ico dist/
           cd dist && sha256sum periscope_windows_amd64.exe > SHA256SUMS
       - name: ffmpeg with SRT
         shell: powershell
@@ -104,6 +105,8 @@ jobs:
           $toggle = Join-Path $menu "Periscope - Start or stop sender.lnk"
           $hotkey = (New-Object -ComObject WScript.Shell).CreateShortcut($toggle).Hotkey
           if ($hotkey) { throw "the toggle shortcut has a hotkey: '$hotkey'" }
+          $icon = (New-Object -ComObject WScript.Shell).CreateShortcut($toggle).IconLocation
+          if ($icon -notmatch "periscope\.ico") { throw "the shortcut icon is '$icon'" }
           Start-Process -FilePath $toggle
           $up = $false
           for ($i = 0; $i -lt 15 -and -not $up; $i++) { Start-Sleep -Seconds 1; & $exe send status | Out-Null; $up = ($LASTEXITCODE -eq 0) }

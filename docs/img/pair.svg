@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2177" height="228" viewBox="0 0 2177 228">
+<rect width="2177" height="228" rx="10" fill="#0d1b2e"/>
+<circle cx="20" cy="20" r="6" fill="#ff5f57"/><circle cx="40" cy="20" r="6" fill="#febc2e"/><circle cx="60" cy="20" r="6" fill="#28c840"/>
+<text x="1088.5" y="24" fill="#6c7a93" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">periscope pair</text>
+<g font-family="DejaVu Sans Mono, Menlo, Consolas, monospace" font-size="14" xml:space="preserve">
+<text x="18.0" y="54" fill="#d7dde8">To stream another device to this one, run one command on that device. It installs periscope</text>
+<text x="18.0" y="71" fill="#d7dde8">and ffmpeg, writes the config and starts sending here (192.168.1.50:9000).</text>
+<text x="18.0" y="105" fill="#00d7af" font-weight="bold">Windows (PowerShell or a command prompt):</text>
+<text x="34.9" y="122" fill="#ffaf00">powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;&amp; ([scriptblock]::Create((irm https://raw.githubusercontent.com/crl-sdn-vpz/periscope/main/install/install.ps1))) -Role send -TargetHost 192.168.1.50 -Port 9000 -Passphrase &#x27;demo-passphrase-2026&#x27;&quot;</text>
+<text x="18.0" y="156" fill="#00d7af" font-weight="bold">Linux, X11 session (terminal):</text>
+<text x="34.9" y="173" fill="#ffaf00">curl -fsSL https://raw.githubusercontent.com/crl-sdn-vpz/periscope/main/install/install.sh | bash -s -- --role send --target-host 192.168.1.50 --port 9000 --passphrase &#x27;demo-passphrase-2026&#x27;</text>
+<text x="18.0" y="207" fill="#6c7a93">Show this again with:  periscope pair</text>
+</g></svg>

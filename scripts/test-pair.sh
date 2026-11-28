@@ -33,15 +33,18 @@ if command -v ufw >/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: a
     sudo ufw allow "$HTTP_PORT/tcp" >/dev/null
 fi
 
-cat <<MSG
-
-============================================================================================
-On the Windows PC, open PowerShell (normal user, not admin) and paste this ONE line:
-
-\$env:PERISCOPE_DOWNLOAD_BASE='http://$ip:$HTTP_PORT'; & ([scriptblock]::Create((irm http://$ip:$HTTP_PORT/install.ps1))) -Role send -TargetHost $ip -Port $port -Passphrase '$pass'
-
-Within ~10 s this screen shows the Windows desktop. Keep this terminal open until the Windows
-install says "Done", then press Ctrl+C here (the viewer keeps running).
-============================================================================================
-MSG
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+    teal=$'\e[38;5;43m' amber=$'\e[38;5;214m' bold=$'\e[1m' dim=$'\e[2m' off=$'\e[0m'
+else
+    teal="" amber="" bold="" dim="" off=""
+fi
+line="\$env:PERISCOPE_DOWNLOAD_BASE='http://$ip:$HTTP_PORT'; & ([scriptblock]::Create((irm http://$ip:$HTTP_PORT/install.ps1))) -Role send -TargetHost $ip -Port $port -Passphrase '$pass'"
+rule="${teal}$(printf '─%.0s' $(seq 1 96))${off}"
+printf '\n%s\n' "$rule"
+printf ' %sOn the Windows PC%s: open PowerShell (normal user, not admin) and paste this ONE line:\n\n' "$bold" "$off"
+printf '   %s%s%s\n\n' "$amber" "$line" "$off"
+printf ' Within ~10 s this screen shows the Windows desktop. When Windows says %sDone.%s, press\n' "$bold" "$off"
+printf ' %sCtrl+C%s here: that only stops the download server, the viewer keeps running.\n' "$bold" "$off"
+printf '%s\n' "$rule"
+printf ' %sStart/stop later: Windows Start menu > Periscope · Linux Super+Shift+V or periscope toggle%s\n' "$dim" "$off"
 wait "$srv"

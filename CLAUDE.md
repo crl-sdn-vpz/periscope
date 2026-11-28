@@ -2,7 +2,9 @@
 
 Screen streaming from a Windows host to a Linux viewer. The viewer adds layout modes,
 overlay opacity control for local windows, and full-resolution frame capture to the clipboard.
-Status: working POC (v0.1.0), tested end to end on Windows 11 → Ubuntu/GNOME.
+Status: v0.3 Go binary (`periscope`) hardware-tested Windows 11 → Ubuntu/GNOME (X11, two monitors);
+the v0.2 scripts below are legacy (docs/v0.2-scripts.md). README.md is for end users; contributor
+docs live in docs/ (hardware-test.md, adr/).
 
 ## Architecture
 
@@ -74,6 +76,11 @@ install/install.sh|ps1  release-based installers (SHA256SUMS checked; PERISCOPE_
                         launchers. Restoring opacity sets 0xffffffff then removes it (mutter ignores bare deletes)
 tests/e2e-go-xvfb.sh    Go e2e: real `periscope send` (capture=test) → `periscope view`
 scripts/test-pair.sh    `just test-pair`: hardware test of a checkout (serves dist/ on the LAN, prints the Windows line)
+internal/ui             terminal styling (colors, logo, boxes, status dots); only on a TTY without NO_COLOR, so
+                        pipes/tests get the plain text; cmd/periscope/style.go applies it per command
+assets/                 icon.svg (source of truth) → `just icons` → icon-256.png, periscope.ico (shipped in dist/)
+docs/img/               README visuals; `just screenshots` regenerates them from a real run on Xvfb
+                        (src/remote-desktop.svg is the made-up sender screen; scripts/term2svg.py renders terminal output)
 ```
 Dependencies: golang.org/x/sys and golang.org/x/term only (approved in ADR 0001). Ask before adding more.
 Keep `CGO_ENABLED=0` cross-compiles working (`just dist`).

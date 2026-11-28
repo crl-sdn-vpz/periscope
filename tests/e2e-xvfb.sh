@@ -74,6 +74,7 @@ check "D1 window kept below"    bash -c "xprop -id $d1w _NET_WM_STATE | grep -q 
 [[ "$(cat "$XDG_RUNTIME_DIR/periscope/opacity")" == "0.80" ]] && ok "peek restores" || fail "peek restore"
 xmessage -geometry 300x100+400+400 app2 & sleep 1.5
 new=$(xdotool search --name '^xmessage$' | grep -v "^$app\$" | head -n1)
+for _ in $(seq 1 20); do [[ -n "$(opacity_of "$new")" ]] && break; sleep 0.25; done   # the watcher is async
 [[ -n "$(opacity_of "$new")" ]] && ok "new window auto-faded" || fail "new window not faded"
 
 echo "== split"

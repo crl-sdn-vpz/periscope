@@ -14,7 +14,19 @@ set -euo pipefail
 REPO="crl-sdn-vpz/periscope"
 role=view version=latest start=1
 init_args=()
-die() { echo "install: $*" >&2; exit 1; }
+
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+    teal=$'\e[38;5;43m' amber=$'\e[38;5;214m' dim=$'\e[2m' bold=$'\e[1m' red=$'\e[31m' off=$'\e[0m'
+else
+    teal="" amber="" dim="" bold="" red="" off=""
+fi
+step() { printf '%s==>%s %s\n' "$teal" "$off" "$*"; }
+warn() { printf '%s  !%s %s\n' "$amber" "$off" "$*"; }
+die()  { printf '%s  ✗ install:%s %s\n' "$red" "$off" "$*" >&2; exit 1; }
+printf '\n%s   ╭───%s◉%s %s))%s\n' "$teal" "$amber" "$off" "$amber" "$off"
+printf '%s   │%s               %speriscope installer%s\n' "$teal" "$off" "$bold" "$off"
+printf '%s ╭─┴──────────╮%s   %ssee another screen through your windows%s\n' "$teal" "$off" "$dim" "$off"
+printf '%s ╰────────────╯%s\n\n' "$teal" "$off"
 
 while (( $# )); do
     case $1 in
@@ -42,7 +54,7 @@ fi
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-echo "==> Downloading $asset ($version)"
+step "Downloading $asset ($version)"
 curl -fsSL "$base/$asset" -o "$tmp/$asset"
 curl -fsSL "$base/SHA256SUMS" -o "$tmp/SHA256SUMS"
 sum=$(grep " $asset\$" "$tmp/SHA256SUMS" || true)
@@ -59,7 +71,7 @@ if [[ -x "$HOME/.local/bin/periscope" ]]; then   # an update: stop the old binar
 fi
 install -m 755 "$tmp/$asset" "$HOME/.local/bin/periscope"
 p="$HOME/.local/bin/periscope"
-echo "==> Installed $("$p" version) to $p"
+step "Installed $("$p" version) to $p"
 
 if [[ $role == view ]]; then
     apt="mpv wmctrl xdotool x11-utils x11-xserver-utils xclip wl-clipboard libnotify-bin"
@@ -68,38 +80,44 @@ if [[ $role == view ]]; then
 else
     apt="ffmpeg" dnf="ffmpeg" pac="ffmpeg"
 fi
-echo "==> Installing dependencies"
+step "Installing dependencies"
 if   command -v apt-get >/dev/null; then sudo apt-get update -q && sudo apt-get install -y $apt
 elif command -v dnf     >/dev/null; then sudo dnf install -y $dnf
 elif command -v pacman  >/dev/null; then sudo pacman -S --needed --noconfirm $pac
-else echo "!! Unknown package manager; install: $apt"; fi
+else warn "Unknown package manager; install: $apt"; fi
 
 if [[ $role == view ]]; then
     protos=$(mpv --list-protocols 2>/dev/null || true)
-    grep -qw 'srt://' <<<"$protos" || echo "!! Your mpv has no SRT support. Install a newer mpv (distro backports or Flathub io.mpv.Mpv)."
+    grep -qw 'srt://' <<<"$protos" || warn "Your mpv has no SRT support. Install a newer mpv (distro backports or Flathub io.mpv.Mpv)."
 fi
 
-echo "==> Config"
+step "Config"
 "$p" config init "${init_args[@]}"
 port=$("$p" config get port)
 
 if [[ $role == view ]]; then
     if command -v ufw >/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
-        echo "==> Opening UDP $port in ufw"; sudo ufw allow "$port/udp"
+        step "Opening UDP $port in ufw"; sudo ufw allow "$port/udp"
     fi
     if command -v firewall-cmd >/dev/null && sudo firewall-cmd --state >/dev/null 2>&1; then
         sudo firewall-cmd --add-port="$port/udp" --permanent && sudo firewall-cmd --reload
     fi
     # App-grid launchers (Activities / app menu; right-click > Pin to Dash to keep them handy).
-    apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    share="${XDG_DATA_HOME:-$HOME/.local/share}"
+    apps="$share/applications"
     mkdir -p "$apps"
+    icon=video-display
+    if curl -fsSL "$base/periscope.png" -o "$tmp/periscope.png" 2>/dev/null; then
+        install -D -m 644 "$tmp/periscope.png" "$share/icons/hicolor/256x256/apps/periscope.png"
+        icon=periscope
+    fi
     cat > "$apps/periscope-toggle.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=Periscope: start or stop viewer
 Comment=Start the periscope viewer, or stop it and make your windows solid again
 Exec=$p toggle
-Icon=video-display
+Icon=$icon
 Terminal=false
 Categories=Utility;
 DESKTOP
@@ -109,11 +127,11 @@ Type=Application
 Name=Periscope menu
 Comment=Control the periscope viewer from a terminal menu
 Exec=$p menu
-Icon=video-display
+Icon=$icon
 Terminal=true
 Categories=Utility;
 DESKTOP
-    echo "==> Added app launchers: 'Periscope: start or stop viewer' and 'Periscope menu'"
+    step "Added app launchers: 'Periscope: start or stop viewer' and 'Periscope menu'"
     # stdin is this script when piped from curl, so the question goes to the terminal.
     if [[ "${XDG_CURRENT_DESKTOP:-}" == *GNOME* ]] && { : </dev/tty; } 2>/dev/null; then
         read -r -p "Register GNOME hotkeys (Super+Shift+V/S/A/P/M/O/N)? [Y/n] " a </dev/tty
@@ -121,7 +139,7 @@ DESKTOP
     fi
 fi
 
-[[ ":$PATH:" == *":$HOME/.local/bin:"* ]] || echo "!! Add ~/.local/bin to your PATH"
+[[ ":$PATH:" == *":$HOME/.local/bin:"* ]] || warn "Add ~/.local/bin to your PATH"
 echo
 
 if (( ! start )); then
@@ -130,9 +148,10 @@ elif [[ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
     echo "No graphical session here; start later with: periscope $role"
 elif [[ $role == view ]]; then
     "$p" view
+    echo
     "$p" pair
     echo
-    echo "Control it with: periscope menu"
+    printf '%s✓ Ready.%s Control it with %speriscope menu%s, Super+Shift+V or the app grid.\n' "$teal" "$off" "$bold" "$off"
 else
     "$p" send --detach
     echo "Check it with: periscope send status"
