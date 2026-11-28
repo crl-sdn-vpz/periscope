@@ -88,8 +88,9 @@ func broadcastEnvironmentChange() {
 		uintptr(unsafe.Pointer(&result)))
 }
 
-// removeAfterExit deletes dir: everything but the running program now, and the folder itself a few
-// seconds after this process exits (Windows won't delete a running exe), via a hidden cmd.exe.
+// removeAfterExit deletes dir: what it can right away, and the rest (at least the running
+// periscope.exe, which Windows won't delete) from a hidden cmd.exe that retries for ~15 s after this
+// process exits. Retrying also rides out short locks such as an antivirus scanning a fresh log.
 func removeAfterExit(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil && !os.IsNotExist(err) {
@@ -97,15 +98,14 @@ func removeAfterExit(dir string) error {
 	}
 	for _, e := range entries {
 		if !strings.EqualFold(e.Name(), "bin") {
-			if err := removePath(filepath.Join(dir, e.Name())); err != nil {
-				return err
-			}
+			_ = removePath(filepath.Join(dir, e.Name())) // best effort: the retry loop below finishes it
 		}
 	}
+	loop := fmt.Sprintf(`for /l %%i in (1,1,15) do @(ping -n 2 127.0.0.1 >nul & rmdir /s /q "%s" 2>nul & if not exist "%s" exit /b 0)`, dir, dir)
 	cmd := exec.Command("cmd.exe")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		// The exact command line: exec's argument quoting (\") is not what cmd.exe understands.
-		CmdLine:       fmt.Sprintf(`cmd.exe /d /c ping -n 4 127.0.0.1 >nul & rmdir /s /q "%s"`, dir),
+		CmdLine:       "cmd.exe /d /c " + loop,
 		HideWindow:    true,
 		CreationFlags: windows.CREATE_NO_WINDOW | windows.CREATE_NEW_PROCESS_GROUP,
 	}
