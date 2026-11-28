@@ -20,7 +20,7 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q just shellcheck xvfb openbox mpv ffmpeg socat wmctrl xdotool \
-            x11-utils x11-apps xfonts-base
+            x11-utils x11-apps xfonts-base xclip
       - run: just lint
       - run: just test
       - run: just e2e
@@ -98,6 +98,22 @@ jobs:
                     Where-Object { $_.CommandLine -like "*service_name=periscope*" }
           }
           if ($left) { $left | Format-Table ProcessId, ParentProcessId, CommandLine -Wrap; throw "ffmpeg outlived the sender" }
+
+          # Start Menu shortcuts: the toggle one (with its hotkey) starts and then stops the sender.
+          $menu = Join-Path ([Environment]::GetFolderPath("Programs")) "Periscope"
+          Get-ChildItem $menu | Select-Object -ExpandProperty Name
+          $toggle = Join-Path $menu "Periscope - Start or stop sender.lnk"
+          $hotkey = (New-Object -ComObject WScript.Shell).CreateShortcut($toggle).Hotkey
+          # Windows may normalize the modifier order, so check each part.
+          foreach ($part in "Ctrl", "Alt", "Shift", "\+P$") { if ($hotkey -notmatch $part) { throw "toggle hotkey is '$hotkey'" } }
+          Start-Process -FilePath $toggle
+          $up = $false
+          for ($i = 0; $i -lt 15 -and -not $up; $i++) { Start-Sleep -Seconds 1; & $exe send status | Out-Null; $up = ($LASTEXITCODE -eq 0) }
+          if (-not $up) { throw "the toggle shortcut did not start the sender" }
+          Start-Process -FilePath $toggle
+          $down = $false
+          for ($i = 0; $i -lt 15 -and -not $down; $i++) { Start-Sleep -Seconds 1; & $exe send status | Out-Null; $down = ($LASTEXITCODE -ne 0) }
+          if (-not $down) { throw "the toggle shortcut did not stop the sender" }
           Stop-Process -Id $listen.Id, $srv.Id -ErrorAction SilentlyContinue
       - name: Desktop capture probe (informational)
         if: always()
