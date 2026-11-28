@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!-- A made-up "remote desktop" used as the sender's screen in the documentation screenshots. -->
+  <defs>
+    <linearGradient id="wall" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3a1c71"/><stop offset=".55" stop-color="#d76d77"/><stop offset="1" stop-color="#ffaf7b"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#wall)"/>
+  <g font-family="DejaVu Sans, Arial, sans-serif">
+    <!-- editor window -->
+    <rect x="70" y="60" width="1060" height="900" rx="10" fill="#1e1f29"/>
+    <rect x="70" y="60" width="1060" height="44" rx="10" fill="#2b2d3a"/>
+    <text x="100" y="89" fill="#c9cbd6" font-size="17">checkout.service.ts — shop-api</text>
+    <rect x="70" y="104" width="230" height="856" fill="#23242f"/>
+    <g fill="#9aa0b4" font-size="15">
+      <text x="92" y="140">▾ src</text><text x="112" y="168">▾ checkout</text>
+      <text x="132" y="196" fill="#f0f0f0">checkout.service.ts</text><text x="132" y="224">checkout.routes.ts</text>
+      <text x="132" y="252">payment.ts</text><text x="112" y="280">▸ catalog</text><text x="112" y="308">▸ users</text>
+      <text x="92" y="336">▸ tests</text><text x="92" y="364">package.json</text>
+    </g>
+    <g font-family="DejaVu Sans Mono, monospace" font-size="17" xml:space="preserve">
+      <text x="330" y="150" fill="#c792ea">export async function <tspan fill="#82aaff">checkout</tspan><tspan fill="#d7dde8">(cart: Cart, user: User) {</tspan></text>
+      <text x="360" y="182" fill="#c792ea">const <tspan fill="#d7dde8">total = cart.items.</tspan><tspan fill="#82aaff">reduce</tspan><tspan fill="#d7dde8">((sum, i) =&gt; sum + i.price * i.qty, 0)</tspan></text>
+      <text x="360" y="214" fill="#c792ea">if <tspan fill="#d7dde8">(total &lt;= </tspan><tspan fill="#f78c6c">0</tspan><tspan fill="#d7dde8">) </tspan>throw new <tspan fill="#ffcb6b">CheckoutError</tspan><tspan fill="#d7dde8">(</tspan><tspan fill="#c3e88d">"empty cart"</tspan><tspan fill="#d7dde8">)</tspan></text>
+      <text x="360" y="262" fill="#676e95">// reserve stock before charging the card</text>
+      <text x="360" y="294" fill="#c792ea">const <tspan fill="#d7dde8">hold = </tspan>await <tspan fill="#d7dde8">inventory.</tspan><tspan fill="#82aaff">reserve</tspan><tspan fill="#d7dde8">(cart.items, { ttl: </tspan><tspan fill="#f78c6c">900</tspan><tspan fill="#d7dde8"> })</tspan></text>
+      <text x="360" y="326" fill="#c792ea">try <tspan fill="#d7dde8">{</tspan></text>
+      <text x="390" y="358" fill="#c792ea">const <tspan fill="#d7dde8">charge = </tspan>await <tspan fill="#d7dde8">payments.</tspan><tspan fill="#82aaff">charge</tspan><tspan fill="#d7dde8">(user.paymentId, total)</tspan></text>
+      <text x="390" y="390" fill="#c792ea">await <tspan fill="#d7dde8">orders.</tspan><tspan fill="#82aaff">create</tspan><tspan fill="#d7dde8">({ user, cart, charge, hold })</tspan></text>
+      <text x="390" y="422" fill="#c792ea">return <tspan fill="#d7dde8">{ ok: </tspan><tspan fill="#f78c6c">true</tspan><tspan fill="#d7dde8">, chargeId: charge.id }</tspan></text>
+      <text x="360" y="454" fill="#d7dde8">} <tspan fill="#c792ea">catch</tspan> (err) {</text>
+      <text x="390" y="486" fill="#c792ea">await <tspan fill="#d7dde8">inventory.</tspan><tspan fill="#82aaff">release</tspan><tspan fill="#d7dde8">(hold)</tspan></text>
+      <text x="390" y="518" fill="#c792ea">throw <tspan fill="#d7dde8">err</tspan></text>
+      <text x="360" y="550" fill="#d7dde8">}</text>
+      <text x="330" y="582" fill="#d7dde8">}</text>
+    </g>
+    <rect x="300" y="700" width="830" height="260" fill="#191a22"/>
+    <text x="320" y="732" fill="#9aa0b4" font-size="14">TERMINAL</text>
+    <g font-family="DejaVu Sans Mono, monospace" font-size="16" xml:space="preserve">
+      <text x="320" y="766" fill="#c3e88d">✓ checkout › charges the card once (41 ms)</text>
+      <text x="320" y="794" fill="#c3e88d">✓ checkout › releases stock when the charge fails (12 ms)</text>
+      <text x="320" y="822" fill="#ff5370">✗ checkout › rejects an expired card</text>
+      <text x="340" y="850" fill="#9aa0b4">Expected: CheckoutError("card expired")  Received: PaymentError(402)</text>
+      <text x="320" y="886" fill="#d7dde8">Tests: <tspan fill="#ff5370">1 failed</tspan>, <tspan fill="#c3e88d">2 passed</tspan>, 3 total</text>
+    </g>
+    <!-- dashboard window -->
+    <rect x="1180" y="60" width="670" height="560" rx="10" fill="#f7f7fb"/>
+    <rect x="1180" y="60" width="670" height="44" rx="10" fill="#e6e7ef"/>
+    <text x="1210" y="89" fill="#3b3d4a" font-size="17">Orders — last 7 days</text>
+    <g fill="#5b5fc7">
+      <rect x="1230" y="400" width="56" height="160" rx="6"/><rect x="1316" y="340" width="56" height="220" rx="6"/>
+      <rect x="1402" y="370" width="56" height="190" rx="6"/><rect x="1488" y="260" width="56" height="300" rx="6"/>
+      <rect x="1574" y="300" width="56" height="260" rx="6"/><rect x="1660" y="210" width="56" height="350" rx="6" fill="#d76d77"/>
+      <rect x="1746" y="250" width="56" height="310" rx="6"/>
+    </g>
+    <g fill="#6b6e80" font-size="15"><text x="1238" y="588">Mon</text><text x="1326" y="588">Tue</text><text x="1410" y="588">Wed</text>
+      <text x="1498" y="588">Thu</text><text x="1588" y="588">Fri</text><text x="1672" y="588">Sat</text><text x="1758" y="588">Sun</text></g>
+    <text x="1230" y="160" fill="#1f2130" font-size="40" font-weight="bold">12,480</text>
+    <text x="1230" y="192" fill="#2e9e5b" font-size="17">▲ 18% vs last week</text>
+    <!-- chat window -->
+    <rect x="1180" y="650" width="670" height="310" rx="10" fill="#ffffff"/>
+    <rect x="1180" y="650" width="670" height="44" rx="10" fill="#e6e7ef"/>
+    <text x="1210" y="679" fill="#3b3d4a" font-size="17">#checkout-team</text>
+    <g font-size="16" fill="#2a2c38">
+      <text x="1210" y="730"><tspan font-weight="bold">Ana</tspan>  can you look at the expired-card test?</text>
+      <text x="1210" y="770"><tspan font-weight="bold">Sam</tspan>  on it, sharing my screen now</text>
+      <text x="1210" y="810"><tspan font-weight="bold">Ana</tspan>  thanks! ping me when it's green</text>
+    </g>
+  </g>
+  <!-- taskbar -->
+  <rect y="1020" width="1920" height="60" fill="#14151c" opacity=".92"/>
+  <g fill="#3d4052"><rect x="880" y="1032" width="36" height="36" rx="8"/><rect x="930" y="1032" width="36" height="36" rx="8" fill="#5b5fc7"/>
+    <rect x="980" y="1032" width="36" height="36" rx="8"/><rect x="1030" y="1032" width="36" height="36" rx="8"/></g>
+  <text x="1840" y="1057" fill="#d7dde8" font-family="DejaVu Sans, Arial, sans-serif" font-size="16">10:42</text>
+</svg>

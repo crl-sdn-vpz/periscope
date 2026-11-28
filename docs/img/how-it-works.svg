@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="300" viewBox="0 0 960 300">
+  <title>How periscope works</title>
+  <rect width="960" height="300" rx="14" fill="#0d1b2e"/>
+  <g font-family="DejaVu Sans, Helvetica, Arial, sans-serif">
+    <!-- sender -->
+    <rect x="30" y="40" width="300" height="220" rx="14" fill="#13294a" stroke="#46e3d0" stroke-width="2"/>
+    <text x="50" y="76" fill="#46e3d0" font-size="20" font-weight="bold">Device being shown</text>
+    <text x="50" y="100" fill="#8fa3c0" font-size="14">Windows · Linux (X11)</text>
+    <text x="50" y="140" fill="#d7dde8" font-size="15">periscope send</text>
+    <text x="50" y="166" fill="#8fa3c0" font-size="13">captures one monitor</text>
+    <text x="50" y="186" fill="#8fa3c0" font-size="13">ffmpeg → H.264 4:4:4 (crisp text)</text>
+    <text x="50" y="206" fill="#8fa3c0" font-size="13">hidden: no window, no tray icon</text>
+    <text x="50" y="236" fill="#8fa3c0" font-size="13">start/stop: Start menu or CLI</text>
+    <!-- link -->
+    <path d="M345 150 H600" stroke="#ffc93d" stroke-width="4" stroke-dasharray="10 8"/>
+    <path d="M600 138 L620 150 L600 162 Z" fill="#ffc93d"/>
+    <text x="482" y="120" fill="#ffc93d" font-size="15" font-weight="bold" text-anchor="middle">SRT over UDP · AES-128</text>
+    <text x="482" y="186" fill="#8fa3c0" font-size="13" text-anchor="middle">shared passphrase · ~100–250 ms on a LAN</text>
+    <text x="482" y="206" fill="#8fa3c0" font-size="13" text-anchor="middle">reconnects by itself, either side first</text>
+    <!-- viewer -->
+    <rect x="630" y="40" width="300" height="220" rx="14" fill="#13294a" stroke="#46e3d0" stroke-width="2"/>
+    <text x="650" y="76" fill="#46e3d0" font-size="20" font-weight="bold">Device watching</text>
+    <text x="650" y="100" fill="#8fa3c0" font-size="14">Linux (X11 full, Wayland basic)</text>
+    <text x="650" y="140" fill="#d7dde8" font-size="15">periscope view</text>
+    <text x="650" y="166" fill="#8fa3c0" font-size="13">mpv shows the feed on any monitor</text>
+    <text x="650" y="186" fill="#8fa3c0" font-size="13">overlay · split · full screen</text>
+    <text x="650" y="206" fill="#8fa3c0" font-size="13">your windows fade over the feed</text>
+    <text x="650" y="236" fill="#8fa3c0" font-size="13">full-res PNG → clipboard</text>
+  </g>
+</svg>
