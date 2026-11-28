@@ -52,7 +52,7 @@ jobs:
           mkdir dist
           CGO_ENABLED=0 go build -ldflags "-X main.version=ci" -o dist/periscope_windows_amd64.exe ./cmd/periscope
           cp assets/periscope.ico dist/
-          cd dist && sha256sum periscope_windows_amd64.exe > SHA256SUMS
+          cd dist && sha256sum periscope_windows_amd64.exe periscope.ico > SHA256SUMS
       - name: ffmpeg with SRT
         shell: powershell
         run: |
